@@ -1,6 +1,8 @@
 package com.skylore.islands.event;
 
 import com.skylore.islands.SkyloreIslands;
+import com.skylore.islands.api.CrashSiteBuiltEvent;
+import com.skylore.islands.api.IslandCell;
 import com.skylore.islands.config.SkyloreConfig;
 import com.skylore.islands.gameplay.CrashArrival;
 import com.skylore.islands.gameplay.PlayerTasks;
@@ -17,6 +19,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 
 
@@ -77,6 +80,7 @@ public class CrashIslandHandler {
         int[] assigned = data.assignedCell(player.getUUID());
         Vec3 stand;
         boolean fresh = false;
+        IslandCell builtCell = null;
         if (assigned != null && data.isBuilt(assigned[0], assigned[1])) {
             BlockPos site = data.site(assigned[0], assigned[1]);
             stand = site != null
@@ -96,10 +100,12 @@ public class CrashIslandHandler {
             stand = CrashSiteBuilder.standAt(level, crash.stand);
             announce = true;
             fresh = true;
+            builtCell = new IslandCell(crash.cellX, crash.cellZ);
         }
         player.teleportTo(stand.x, stand.y, stand.z);
         if (fresh) {
             CrashArrival.wakeUp(player);
+            NeoForge.EVENT_BUS.post(new CrashSiteBuiltEvent(player, builtCell, BlockPos.containing(stand)));
         }
         BlockPos spawn = BlockPos.containing(stand);
         if (announce || player.getRespawnPosition() == null) {
