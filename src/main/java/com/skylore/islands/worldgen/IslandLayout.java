@@ -19,6 +19,14 @@ public final class IslandLayout {
     /** Max |warp| from warpedPoint (~45+14). Chunk AABB tests are unwarped. */
     public static final double WARP_SLACK = 60.0;
 
+    /** Islet packing in {@link CellularIslandDensityFunction.IslandLayout#islets}: x, z, radius, y offset. */
+    public static final int ISLET_STRIDE = 4;
+    public static final double[] NO_ISLETS = new double[0];
+    /** Farthest islet edge past baseRadius * max shape: max radius 14 + max gap 39 + max radius 14. */
+    public static final double ISLET_REACH = 68.0;
+    /** Slack around a chunk's warped bounds; the warp bends by far less than this across 16 blocks. */
+    private static final double ISLET_CHUNK_PAD = 4.0;
+
     private static final int[][] PAIR_DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
     private static final CellularIslandDensityFunction.IslandLayout ABSENT_LAYOUT =
             new CellularIslandDensityFunction.IslandLayout(0, 0, 0, 0, 0, 0, -1, false, 0L);
@@ -415,7 +423,11 @@ public final class IslandLayout {
             maxY = Math.max(maxY, corner.altitude + Y_PAD_ABOVE);
         }
         if (minY == Integer.MAX_VALUE) {
-            return null;
+            CellularIslandDensityFunction.IslandLayout islet = isletLayoutNearChunk(chunkX, chunkZ);
+            if (islet == null) {
+                return null;
+            }
+            return new int[]{islet.altitude - Y_PAD_BELOW, islet.altitude + Y_PAD_ABOVE};
         }
         return new int[]{minY, maxY};
     }
@@ -438,7 +450,7 @@ public final class IslandLayout {
             return cache[1] != 0L;
         }
         boolean aabb = chunkAabbMightContainIsland(chunkX, chunkZ);
-        boolean inside = aabb && chunkHasSampledIslandColumn(chunkX, chunkZ);
+        boolean inside = aabb && (chunkHasSampledIslandColumn(chunkX, chunkZ) || isletLayoutNearChunk(chunkX, chunkZ) != null);
         cache[0] = key;
         cache[1] = inside ? 1L : 0L;
         return inside;
@@ -580,7 +592,7 @@ public final class IslandLayout {
     public static boolean columnOnIslandOrExtra(CellularIslandDensityFunction.IslandLayout layout, double wx, double wz) {
         double dx = wx - layout.centerX;
         double dz = wz - layout.centerZ;
-        double dist = Math.hypot(dx, dz);
+        double dist = Math.sqrt(dx * dx + dz * dz);
         double angle = Math.atan2(dz, dx);
         double phase1 = ((layout.cellHash >> 16) & 0xFF) * 0.025;
         double phase2 = ((layout.cellHash >> 24) & 0xFF) * 0.025;
@@ -589,7 +601,7 @@ public final class IslandLayout {
             return true;
         }
         if (!hasSatellites(layout) || dist < layout.baseRadius * 1.10 || dist > layout.baseRadius * 1.40 + 36.0) {
-            return false;
+            return onIslet(layout, wx, wz);
         }
         int count = 1 + (int) Math.floorMod(layout.cellHash >> 18, 3);
         for (int i = 0; i < count; i++) {
@@ -599,19 +611,115 @@ public final class IslandLayout {
             double rad = 18.0 + ((layout.cellHash >> (i * 5)) & 15);
             double sx = layout.centerX + Math.cos(ang) * orbit;
             double sz = layout.centerZ + Math.sin(ang) * orbit;
-            if (Math.hypot(wx - sx, wz - sz) < rad) {
+            double sdx = wx - sx;
+            double sdz = wz - sz;
+            if (sdx * sdx + sdz * sdz < rad * rad) {
+                return true;
+            }
+        }
+        return onIslet(layout, wx, wz);
+    }
+
+    /**
+     * Rock islets (radius 6-14) orbiting just outside the shoreline: 1-3 per island, 3-6 on large land.
+     * Bowl archetypes keep a clean rim. Positions are in warped space, like the island body.
+     */
+    public static double[] computeIslets(int centerX, int centerZ, int baseRadius, int archetype, boolean mega, long cellHash) {
+        if (isBowlArchetype(archetype)) {
+            return NO_ISLETS;
+        }
+        long h = cellHash * 0x9E3779B97F4A7C15L;
+        h ^= h >>> 31;
+        boolean large = mega || baseRadius >= 90;
+        int count = large ? 3 + (int) Math.floorMod(h, 4L) : 1 + (int) Math.floorMod(h, 3L);
+        double phase1 = ((cellHash >> 16) & 0xFF) * 0.025;
+        double phase2 = ((cellHash >> 24) & 0xFF) * 0.025;
+        double[] islets = new double[count * ISLET_STRIDE];
+        for (int i = 0; i < count; i++) {
+            long r = hashCoordinates(i, 7919, h);
+            double ang = (r & 1023) * (Math.PI * 2.0 / 1024.0);
+            double rad = 6 + Math.floorMod(r >>> 10, 9L);
+            double gap = 8 + ((r >>> 14) & 31);
+            double yOffset = -30 + Math.floorMod(r >>> 20, 41L);
+            double orbit = baseRadius * CellularIslandDensityFunction.getShapeMod(archetype, ang, phase1, phase2) + rad + gap;
+            int o = i * ISLET_STRIDE;
+            islets[o] = centerX + Math.cos(ang) * orbit;
+            islets[o + 1] = centerZ + Math.sin(ang) * orbit;
+            islets[o + 2] = rad;
+            islets[o + 3] = yOffset;
+        }
+        return islets;
+    }
+
+    public static boolean onIslet(CellularIslandDensityFunction.IslandLayout layout, double wx, double wz) {
+        double[] islets = layout.islets;
+        for (int o = 0; o < islets.length; o += ISLET_STRIDE) {
+            double dx = wx - islets[o];
+            double dz = wz - islets[o + 1];
+            double rad = islets[o + 2];
+            if (dx * dx + dz * dz < rad * rad) {
                 return true;
             }
         }
         return false;
     }
 
+    /**
+     * Islets are too small for the 4-block column sampling, so test their discs against the
+     * bounding box of the chunk's warped corners. Returns the owning layout, or null.
+     */
+    public static CellularIslandDensityFunction.IslandLayout isletLayoutNearChunk(int chunkX, int chunkZ) {
+        int cellSize = SkyloreConfig.cellSize();
+        int minAlt = SkyloreConfig.minIslandAltitude();
+        int maxAlt = SkyloreConfig.maxIslandAltitude();
+        int minRad = SkyloreConfig.minIslandRadius();
+        int maxRad = SkyloreConfig.maxIslandRadius();
+        int x0 = chunkX << 4;
+        int z0 = chunkZ << 4;
+        double minWx = Double.MAX_VALUE;
+        double minWz = Double.MAX_VALUE;
+        double maxWx = -Double.MAX_VALUE;
+        double maxWz = -Double.MAX_VALUE;
+        for (int corner = 0; corner < 4; corner++) {
+            WarpedPoint p = warpedPoint(x0 + ((corner & 1) * 15), z0 + ((corner >> 1) * 15), cellSize);
+            minWx = Math.min(minWx, p.wx);
+            minWz = Math.min(minWz, p.wz);
+            maxWx = Math.max(maxWx, p.wx);
+            maxWz = Math.max(maxWz, p.wz);
+        }
+        WarpedPoint center = warpedPoint(x0 + 8, z0 + 8, cellSize);
+        int cellX = center.cellX;
+        int cellZ = center.cellZ;
+        for (int ox = -1; ox <= 1; ox++) {
+            for (int oz = -1; oz <= 1; oz++) {
+                CellularIslandDensityFunction.IslandLayout layout = layoutForCell(cellX + ox, cellZ + oz, cellSize, minAlt, maxAlt, minRad, maxRad);
+                if (layout == null) {
+                    continue;
+                }
+                double[] islets = layout.islets;
+                for (int o = 0; o < islets.length; o += ISLET_STRIDE) {
+                    double cx = Math.max(minWx, Math.min(maxWx, islets[o]));
+                    double cz = Math.max(minWz, Math.min(maxWz, islets[o + 1]));
+                    double dx = islets[o] - cx;
+                    double dz = islets[o + 1] - cz;
+                    double reach = islets[o + 2] + ISLET_CHUNK_PAD;
+                    if (dx * dx + dz * dz <= reach * reach) {
+                        return layout;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     public static boolean isLandBridge(CellularIslandDensityFunction.IslandLayout a, CellularIslandDensityFunction.IslandLayout b) {
         if (a == null || b == null || isBowlArchetype(a.archetype) || isBowlArchetype(b.archetype)) {
             return false;
         }
-        double gap = Math.hypot(a.centerX - b.centerX, a.centerZ - b.centerZ);
-        if (gap >= a.baseRadius + b.baseRadius + LAND_BRIDGE_GAP_SLACK) {
+        double gx = a.centerX - b.centerX;
+        double gz = a.centerZ - b.centerZ;
+        double maxGap = a.baseRadius + b.baseRadius + LAND_BRIDGE_GAP_SLACK;
+        if (gx * gx + gz * gz >= maxGap * maxGap) {
             return false;
         }
         int ax = a.cellX;
@@ -639,11 +747,13 @@ public final class IslandLayout {
         double vz = bz - az;
         double lenSq = vx * vx + vz * vz;
         if (lenSq < 1.0) {
-            return Math.hypot(px - ax, pz - az);
+            return Math.sqrt((px - ax) * (px - ax) + (pz - az) * (pz - az));
         }
         double t = ((px - ax) * vx + (pz - az) * vz) / lenSq;
         t = Math.max(0.0, Math.min(1.0, t));
-        return Math.hypot(px - (ax + t * vx), pz - (az + t * vz));
+        double ex = px - (ax + t * vx);
+        double ez = pz - (az + t * vz);
+        return Math.sqrt(ex * ex + ez * ez);
     }
 
     public static boolean segmentNearAabb(double ax, double az, double bx, double bz,
@@ -675,10 +785,14 @@ public final class IslandLayout {
 
     public static double layoutSkipRadius(CellularIslandDensityFunction.IslandLayout layout) {
         double shape = layout.baseRadius * Math.sqrt(MAX_SHAPE_SCALE_SQ);
-        if (!hasSatellites(layout)) {
-            return shape;
+        double reach = shape;
+        if (hasSatellites(layout)) {
+            reach = Math.max(reach, layout.baseRadius * 1.40 + 36.0);
         }
-        return Math.max(shape, layout.baseRadius * 1.40 + 36.0);
+        if (layout.islets.length > 0) {
+            reach = Math.max(reach, shape + ISLET_REACH);
+        }
+        return reach;
     }
 
     public static int maxHorizontalReach(int maxRad) {

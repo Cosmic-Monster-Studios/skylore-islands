@@ -12,30 +12,38 @@ public final class IslandVolume {
     private static final ThreadLocal<ColumnDensityCache> COLUMN_DENSITY_CACHE = ThreadLocal.withInitial(ColumnDensityCache::new);
     private static final ThreadLocal<DensitySampleCache> DENSITY_SAMPLE_CACHE = ThreadLocal.withInitial(DensitySampleCache::new);
 
+    /** Shared read-only result for columns with no island; never mutated after construction. */
+    private static final ColumnDensity INACTIVE_COLUMN = new ColumnDensity();
+
+    /** Hanging spires under large islands: noise above this threshold grows a spire. */
+    private static final double SPIRE_THRESHOLD = 0.30;
+    private static final double SPIRE_MAX_DEPTH = 42.0;
+
     private IslandVolume() {
     }
 
     public static double compute(int x, int y, int z, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
-        int density = SkyloreConfig.islandDensity();
-
         if (y < minAlt - IslandLayout.Y_PAD_BELOW || y > maxAlt + IslandLayout.Y_PAD_ABOVE) {
             return -1.0;
         }
 
-        ColumnDensity column = columnDensityAt(x, z, cellSize, minAlt, maxAlt, minRad, maxRad);
+        int density = SkyloreConfig.islandDensity();
+        long worldSeed = CellularIslandDensityFunction.worldSeed();
+        long layoutSalt = CellularIslandDensityFunction.layoutSalt();
+
+        ColumnDensity column = COLUMN_DENSITY_CACHE.get().get(x, z, cellSize, minAlt, maxAlt, minRad, maxRad, density, worldSeed, layoutSalt);
+        DensitySampleCache sampleCache = DENSITY_SAMPLE_CACHE.get();
         if (!column.active) {
-            DensitySampleCache voidCache = DENSITY_SAMPLE_CACHE.get();
-            voidCache.store(CellularIslandDensityFunction.worldSeed(), CellularIslandDensityFunction.layoutSalt(), cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z, -1.0);
+            sampleCache.store(worldSeed, layoutSalt, cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z, -1.0);
             return -1.0;
         }
 
-        DensitySampleCache sampleCache = DENSITY_SAMPLE_CACHE.get();
-        if (sampleCache.matches(CellularIslandDensityFunction.worldSeed(), CellularIslandDensityFunction.layoutSalt(), cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z)) {
+        if (sampleCache.matches(worldSeed, layoutSalt, cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z)) {
             return sampleCache.value;
         }
 
         double value = evaluateColumnDensity(column, x, y, z);
-        sampleCache.store(CellularIslandDensityFunction.worldSeed(), CellularIslandDensityFunction.layoutSalt(), cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z, value);
+        sampleCache.store(worldSeed, layoutSalt, cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z, value);
         return value;
     }
 
@@ -44,7 +52,8 @@ public final class IslandVolume {
     }
 
     public static ColumnDensity columnDensityAt(int x, int z, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
-        return COLUMN_DENSITY_CACHE.get().get(x, z, cellSize, minAlt, maxAlt, minRad, maxRad);
+        return COLUMN_DENSITY_CACHE.get().get(x, z, cellSize, minAlt, maxAlt, minRad, maxRad,
+                SkyloreConfig.islandDensity(), CellularIslandDensityFunction.worldSeed(), CellularIslandDensityFunction.layoutSalt());
     }
 
     public static ColumnDensity buildColumnDensity(int x, int z, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
@@ -82,6 +91,12 @@ public final class IslandVolume {
                 double inner = layout.baseRadius * 1.10;
                 if (distSq >= inner * inner) {
                     fillSatellites(contrib, layout, wx, wz);
+                }
+            }
+            if (layout.islets.length > 0) {
+                double inner = layout.baseRadius * 0.50;
+                if (distSq >= inner * inner) {
+                    fillIslets(contrib, layout, wx, wz);
                 }
             }
 
@@ -127,8 +142,11 @@ public final class IslandVolume {
         }
 
         column.active = onFootprint || column.contribCount > 0 || column.bridgeCount > 0;
-        column.minY = column.active ? minY : Integer.MAX_VALUE;
-        column.maxY = column.active ? maxY : Integer.MIN_VALUE;
+        if (!column.active) {
+            return INACTIVE_COLUMN;
+        }
+        column.minY = minY;
+        column.maxY = maxY;
         return column;
     }
 
@@ -213,6 +231,9 @@ public final class IslandVolume {
 
         contrib.topThickness = topThickness;
         contrib.bottomBase = islandDepth * Math.pow(smoothHoriz, 1.35) + macroNoise * smoothHoriz;
+        if (IslandLayout.isLargeLand(layout)) {
+            contrib.bottomBase += spireDepth(x, z, smoothHoriz, contrib.bottomBase);
+        }
         contrib.maxBottom = contrib.bottomBase + 5.5 * smoothHoriz;
     }
 
@@ -225,14 +246,49 @@ public final class IslandVolume {
             double rad = 18.0 + ((layout.cellHash >> (i * 5)) & 15);
             double sx = layout.centerX + Math.cos(ang) * orbit;
             double sz = layout.centerZ + Math.sin(ang) * orbit;
-            double dist = Math.hypot(wx - sx, wz - sz);
-            if (dist >= rad) {
+            double sdx = wx - sx;
+            double sdz = wz - sz;
+            double distSq = sdx * sdx + sdz * sdz;
+            if (distSq >= rad * rad) {
                 continue;
             }
+            double dist = Math.sqrt(distSq);
             ColumnSat sat = new ColumnSat();
             sat.smooth = Math.cos((dist / rad) * (Math.PI / 2.0));
             sat.top = 10.0 * Math.pow(sat.smooth, 0.7);
             sat.bot = 22.0 * Math.pow(sat.smooth, 1.2);
+            contrib.sats[contrib.satCount++] = sat;
+        }
+    }
+
+    /** Extra underside depth for a stalactite spire at this column; 0 for most columns. */
+    public static double spireDepth(int x, int z, double smoothHoriz, double bottomBase) {
+        double n = FastNoise.noise2D(x * 0.07, z * 0.07, 901);
+        if (n <= SPIRE_THRESHOLD) {
+            return 0.0;
+        }
+        double t = Math.min(1.0, (n - SPIRE_THRESHOLD) / 0.35);
+        double depth = SPIRE_MAX_DEPTH * t * t * Math.sqrt(smoothHoriz);
+        // Stay inside the Y_PAD_BELOW band, including maxBottom's +5.5 detail slack.
+        return Math.max(0.0, Math.min(depth, IslandLayout.Y_PAD_BELOW - 12.0 - bottomBase));
+    }
+
+    /** Small rock islets: low mound on top, a hanging cone below. */
+    public static void fillIslets(ColumnContrib contrib, CellularIslandDensityFunction.IslandLayout layout, double wx, double wz) {
+        double[] islets = layout.islets;
+        for (int o = 0; o < islets.length && contrib.satCount < contrib.sats.length; o += IslandLayout.ISLET_STRIDE) {
+            double dx = wx - islets[o];
+            double dz = wz - islets[o + 1];
+            double rad = islets[o + 2];
+            double distSq = dx * dx + dz * dz;
+            if (distSq >= rad * rad) {
+                continue;
+            }
+            ColumnSat sat = new ColumnSat();
+            sat.smooth = Math.cos((Math.sqrt(distSq) / rad) * (Math.PI / 2.0));
+            sat.top = 5.0 * Math.pow(sat.smooth, 0.7);
+            sat.bot = rad * 1.6 * Math.pow(sat.smooth, 1.2);
+            sat.yOffset = islets[o + 3];
             contrib.sats[contrib.satCount++] = sat;
         }
     }
@@ -285,10 +341,11 @@ public final class IslandVolume {
             double dy = y - c.altitude;
             for (int s = 0; s < c.satCount; s++) {
                 ColumnSat sat = c.sats[s];
-                if (dy < -sat.bot || dy > sat.top) {
+                double sdy = dy - sat.yOffset;
+                if (sdy < -sat.bot || sdy > sat.top) {
                     continue;
                 }
-                double vert = dy > 0.0 ? 1.0 - dy / Math.max(1.0, sat.top) : 1.0 - (-dy) / Math.max(1.0, sat.bot);
+                double vert = sdy > 0.0 ? 1.0 - sdy / Math.max(1.0, sat.top) : 1.0 - (-sdy) / Math.max(1.0, sat.bot);
                 bestDensity = Math.max(bestDensity, sat.smooth * vert + FastNoise.noise3D(x * 0.05, y * 0.05, z * 0.05, 521) * 0.10);
             }
             if (c.shelfHoriz) {
@@ -417,9 +474,9 @@ public final class IslandVolume {
     static final class ColumnDensityCache {
         final LongKeyedCache<ColumnDensity> cache = new LongKeyedCache<>(4096);
 
-        ColumnDensity get(int x, int z, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
-            cache.validate(LongKeyedCache.stamp(CellularIslandDensityFunction.worldSeed(), CellularIslandDensityFunction.layoutSalt(),
-                    cellSize, minAlt, maxAlt, minRad, maxRad, SkyloreConfig.islandDensity()));
+        ColumnDensity get(int x, int z, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad,
+                int density, long worldSeed, long layoutSalt) {
+            cache.validate(LongKeyedCache.stamp(worldSeed, layoutSalt, cellSize, minAlt, maxAlt, minRad, maxRad, density));
             long key = IslandLayout.packedXZ(x, z);
             ColumnDensity column = cache.get(key);
             if (column == null) {
@@ -461,13 +518,16 @@ public final class IslandVolume {
         double shelfAlt;
         double shelfSmooth;
         int satCount;
-        final ColumnSat[] sats = new ColumnSat[3];
+        /** Up to 3 satellites first, then islets fill the remaining slots. */
+        final ColumnSat[] sats = new ColumnSat[6];
     }
 
     static final class ColumnSat {
         double smooth;
         double top;
         double bot;
+        /** Vertical offset from the island altitude; 0 for satellites, varied for islets. */
+        double yOffset;
     }
 
     static final class ColumnBridge {
