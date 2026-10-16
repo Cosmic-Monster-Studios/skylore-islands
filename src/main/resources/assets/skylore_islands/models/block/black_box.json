@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "front": "skylore_islands:block/black_box_front",
+    "side": "skylore_islands:block/black_box_side",
+    "top": "skylore_islands:block/black_box_top"
+  }
+}

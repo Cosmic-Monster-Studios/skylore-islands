@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "skylore_islands:ship_scrap"
+    }
+  ],
+  "result": {
+    "id": "minecraft:iron_nugget",
+    "count": 1
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/iron_bars_side",
+  "render_type": "minecraft:cutout",
+  "textures": {
+    "particle": "skylore_islands:block/ship_hull_frame",
+    "bars": "skylore_islands:block/ship_hull_frame",
+    "edge": "skylore_islands:block/ship_hull_frame"
+  }
+}

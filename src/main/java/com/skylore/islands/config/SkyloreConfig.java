@@ -13,10 +13,10 @@ public class SkyloreConfig {
         public final ModConfigSpec.IntValue maxIslandRadius;
 
         public final ModConfigSpec.BooleanValue crashIslandsEnabled;
-        public final ModConfigSpec.ConfigValue<String> crashIslandStructureId;
-        public final ModConfigSpec.IntValue crashIslandMinBaseRadius;
         public final ModConfigSpec.BooleanValue crashIslandSkipOriginCell;
-        public final ModConfigSpec.IntValue crashIslandSpawnYOffset;
+        public final ModConfigSpec.IntValue crashCraterRadius;
+        public final ModConfigSpec.IntValue crashMinTreeLogs;
+        public final ModConfigSpec.IntValue crashMinIslandRadius;
 
         public final ModConfigSpec.BooleanValue voidFallProtection;
         public final ModConfigSpec.IntValue voidFallRescueY;
@@ -52,20 +52,20 @@ public class SkyloreConfig {
 
             builder.push("crash_islands");
             crashIslandsEnabled = builder
-                    .comment("Give each player a unique crash island on first Overworld join.")
+                    .comment("Crash-land each new player on their own forested island on first Overworld join.")
                     .define("enabled", true);
-            crashIslandStructureId = builder
-                    .comment("Structure resource location pasted on the assigned cell (data/<ns>/structures/<path>.nbt).")
-                    .define("structureId", "skylore:islandspawn");
-            crashIslandMinBaseRadius = builder
-                    .comment("Void clearance around the crash schematic, in blocks. Cells that already have generated islands are skipped.")
-                    .defineInRange("minBaseRadius", 40, 10, 512);
             crashIslandSkipOriginCell = builder
                     .comment("Never assign cell (0,0); that stays the world hub.")
                     .define("skipOriginCell", true);
-            crashIslandSpawnYOffset = builder
-                    .comment("Fallback player Y above island altitude when no stand block is found.")
-                    .defineInRange("spawnYOffset", 1, 0, 16);
+            crashCraterRadius = builder
+                    .comment("Impact crater radius in blocks.")
+                    .defineInRange("craterRadius", 12, 6, 32);
+            crashMinTreeLogs = builder
+                    .comment("Log blocks that must be within 24 blocks of a crash site, so players start near trees.")
+                    .defineInRange("minTreeLogs", 12, 0, 1000);
+            crashMinIslandRadius = builder
+                    .comment("Smallest island base radius that can hold a crash site.")
+                    .defineInRange("minIslandRadius", 40, 20, 512);
             builder.pop();
 
             builder.push("gameplay");
@@ -89,10 +89,10 @@ public class SkyloreConfig {
     public static final int DEFAULT_MIN_RADIUS = 45;
     public static final int DEFAULT_MAX_RADIUS = 170;
     public static final boolean DEFAULT_CRASH_ISLANDS_ENABLED = true;
-    public static final String DEFAULT_CRASH_ISLAND_STRUCTURE = "skylore:islandspawn";
-    public static final int DEFAULT_CRASH_ISLAND_MIN_RADIUS = 40;
     public static final boolean DEFAULT_CRASH_ISLAND_SKIP_ORIGIN = true;
-    public static final int DEFAULT_CRASH_ISLAND_SPAWN_Y_OFFSET = 1;
+    public static final int DEFAULT_CRASH_CRATER_RADIUS = 12;
+    public static final int DEFAULT_CRASH_MIN_TREE_LOGS = 12;
+    public static final int DEFAULT_CRASH_MIN_ISLAND_RADIUS = 40;
 
     static {
         final Pair<Server, ModConfigSpec> specPair = new ModConfigSpec.Builder().configure(Server::new);
@@ -152,20 +152,20 @@ public class SkyloreConfig {
         return loaded() ? SERVER.crashIslandsEnabled.get() : DEFAULT_CRASH_ISLANDS_ENABLED;
     }
 
-    public static String crashIslandStructureId() {
-        return loaded() ? SERVER.crashIslandStructureId.get() : DEFAULT_CRASH_ISLAND_STRUCTURE;
-    }
-
-    public static int crashIslandMinBaseRadius() {
-        return loaded() ? SERVER.crashIslandMinBaseRadius.get() : DEFAULT_CRASH_ISLAND_MIN_RADIUS;
-    }
-
     public static boolean crashIslandSkipOriginCell() {
         return loaded() ? SERVER.crashIslandSkipOriginCell.get() : DEFAULT_CRASH_ISLAND_SKIP_ORIGIN;
     }
 
-    public static int crashIslandSpawnYOffset() {
-        return loaded() ? SERVER.crashIslandSpawnYOffset.get() : DEFAULT_CRASH_ISLAND_SPAWN_Y_OFFSET;
+    public static int crashCraterRadius() {
+        return loaded() ? SERVER.crashCraterRadius.get() : DEFAULT_CRASH_CRATER_RADIUS;
+    }
+
+    public static int crashMinTreeLogs() {
+        return loaded() ? SERVER.crashMinTreeLogs.get() : DEFAULT_CRASH_MIN_TREE_LOGS;
+    }
+
+    public static int crashMinIslandRadius() {
+        return loaded() ? SERVER.crashMinIslandRadius.get() : DEFAULT_CRASH_MIN_ISLAND_RADIUS;
     }
 
     public static boolean voidFallProtection() {

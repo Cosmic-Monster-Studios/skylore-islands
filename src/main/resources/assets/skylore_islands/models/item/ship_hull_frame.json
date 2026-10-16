@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "skylore_islands:block/ship_hull_frame"
+  }
+}

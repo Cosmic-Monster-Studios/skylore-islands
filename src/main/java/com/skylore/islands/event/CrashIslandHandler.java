@@ -2,15 +2,16 @@ package com.skylore.islands.event;
 
 import com.skylore.islands.SkyloreIslands;
 import com.skylore.islands.config.SkyloreConfig;
+import com.skylore.islands.gameplay.CrashArrival;
+import com.skylore.islands.gameplay.PlayerTasks;
 import com.skylore.islands.worldgen.CrashIslandCells;
-import com.skylore.islands.worldgen.CrashIslandPlacer;
-import com.skylore.islands.worldgen.IslandLayoutBinder;
 import com.skylore.islands.worldgen.CrashIslandSavedData;
+import com.skylore.islands.worldgen.CrashSiteBuilder;
+import com.skylore.islands.worldgen.IslandLayout;
+import com.skylore.islands.worldgen.IslandLayoutBinder;
+import com.skylore.islands.worldgen.density.CellularIslandDensityFunction;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Vec3i;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
@@ -18,13 +19,14 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 
-import java.util.UUID;
 
 /**
- * Assigns each player a unique empty Voronoi cell, pastes islandspawn once in the void, and sends them there.
+ * Crash-lands each new player on their own forested island: a blasted crater, a wrecked ship and a black box.
  */
 public class CrashIslandHandler {
     private static final int MAX_ALLOC_TRIES = 512;
+    /** Spots that get chunk-loaded and checked for real trees, per player. */
+    private static final int MAX_BUILD_ATTEMPTS = 12;
     private static final int LOGIN_DELAY_TICKS = 20;
     private static final int RESPAWN_DELAY_TICKS = 5;
 
@@ -62,14 +64,7 @@ public class CrashIslandHandler {
     }
 
     private static void schedule(ServerPlayer player, int delay, boolean announce) {
-        MinecraftServer server = player.server;
-        UUID uuid = player.getUUID();
-        server.tell(new TickTask(server.getTickCount() + delay, () -> {
-            ServerPlayer live = server.getPlayerList().getPlayer(uuid);
-            if (live != null) {
-                deliver(live, announce);
-            }
-        }));
+        PlayerTasks.schedule(player, delay, live -> deliver(live, announce));
     }
 
     private static void deliver(ServerPlayer player, boolean announce) {
@@ -78,88 +73,83 @@ public class CrashIslandHandler {
         }
         ServerLevel level = player.serverLevel();
         IslandLayoutBinder.bindFromLevel(level);
-        Assignment assignment = ensureAssignment(player, level);
-        if (assignment == null) {
-            return;
-        }
-        if (!assignment.built) {
-            if (!CrashIslandPlacer.paste(level, assignment.site)) {
-                CrashIslandSavedData.get(overworld(player)).release(player.getUUID());
-                player.sendSystemMessage(Component.literal("Could not build your crash island."));
+        CrashIslandSavedData data = CrashIslandSavedData.get(overworld(player));
+        int[] assigned = data.assignedCell(player.getUUID());
+        Vec3 stand;
+        boolean fresh = false;
+        if (assigned != null && data.isBuilt(assigned[0], assigned[1])) {
+            BlockPos site = data.site(assigned[0], assigned[1]);
+            stand = site != null
+                    ? CrashSiteBuilder.standAt(level, site)
+                    : CrashSiteBuilder.legacyStand(level, assigned[0], assigned[1]);
+        } else {
+            if (assigned != null) {
+                data.release(player.getUUID());
+            }
+            CrashSite crash = allocateAndBuild(level, data);
+            if (crash == null) {
+                player.sendSystemMessage(Component.literal("No forested island left to crash on."));
                 return;
             }
-            CrashIslandSavedData.get(overworld(player)).markBuilt(assignment.site.cellX, assignment.site.cellZ);
-            assignment.built = true;
+            data.assign(player.getUUID(), crash.cellX, crash.cellZ);
+            data.markBuilt(crash.cellX, crash.cellZ, crash.stand);
+            stand = CrashSiteBuilder.standAt(level, crash.stand);
+            announce = true;
+            fresh = true;
         }
-        Vec3 stand = CrashIslandPlacer.findStand(level, assignment.site);
         player.teleportTo(stand.x, stand.y, stand.z);
+        if (fresh) {
+            CrashArrival.wakeUp(player);
+        }
         BlockPos spawn = BlockPos.containing(stand);
         if (announce || player.getRespawnPosition() == null) {
             // forced: vanilla clears non-forced spawns that have no bed/anchor block.
             player.setRespawnPosition(Level.OVERWORLD, spawn, player.getYRot(), true, false);
         }
         if (announce) {
-            SkyloreIslands.LOGGER.info("Crash island for {} at cell {},{} -> {}",
-                    player.getGameProfile().getName(), assignment.site.cellX, assignment.site.cellZ, spawn);
+            SkyloreIslands.LOGGER.info("Crash site for {} -> {}", player.getGameProfile().getName(), spawn);
         }
     }
 
-    private static Assignment ensureAssignment(ServerPlayer player, ServerLevel level) {
-        CrashIslandSavedData data = CrashIslandSavedData.get(overworld(player));
-        int[] assigned = data.assignedCell(player.getUUID());
-        if (assigned != null) {
-            return new Assignment(CrashIslandPlacer.voidSite(assigned[0], assigned[1]), data.isBuilt(assigned[0], assigned[1]));
-        }
-        if (CrashIslandPlacer.templateSize(level) == null) {
-            player.sendSystemMessage(Component.literal("Could not build your crash island."));
-            return null;
-        }
-        Assignment fresh = allocate(level, data);
-        if (fresh == null) {
-            player.sendSystemMessage(Component.literal("No open void cell in the spiral. The sky is out of leases."));
-            return null;
-        }
-        data.assign(player.getUUID(), fresh.site.cellX, fresh.site.cellZ);
-        return fresh;
-    }
-
-    private static Assignment allocate(ServerLevel level, CrashIslandSavedData data) {
-        Vec3i size = CrashIslandPlacer.templateSize(level);
-        if (size == null) {
-            return null;
-        }
+    /** Walks the cell spiral for an unclaimed forested island and blasts a crash site into it. */
+    private static CrashSite allocateAndBuild(ServerLevel level, CrashIslandSavedData data) {
         boolean skipOrigin = SkyloreConfig.crashIslandSkipOriginCell();
-        for (int tries = 0; tries < MAX_ALLOC_TRIES; tries++) {
-            int seq = data.takeNextSeq();
-            int[] cell = CrashIslandCells.cellAtSpawnIndex(seq, skipOrigin);
+        int cellSize = SkyloreConfig.cellSize();
+        int minAlt = SkyloreConfig.minIslandAltitude();
+        int maxAlt = SkyloreConfig.maxIslandAltitude();
+        int minRad = SkyloreConfig.minIslandRadius();
+        int maxRad = SkyloreConfig.maxIslandRadius();
+        int builds = 0;
+        for (int tries = 0; tries < MAX_ALLOC_TRIES && builds < MAX_BUILD_ATTEMPTS; tries++) {
+            int[] cell = CrashIslandCells.cellAtSpawnIndex(data.takeNextSeq(), skipOrigin);
             int cellX = cell[0];
             int cellZ = cell[1];
-            if (skipOrigin && cellX == 0 && cellZ == 0) {
+            if ((skipOrigin && cellX == 0 && cellZ == 0) || data.isClaimed(cellX, cellZ)) {
                 continue;
             }
-            if (data.isClaimed(cellX, cellZ)) {
+            CellularIslandDensityFunction.IslandLayout layout = CellularIslandDensityFunction.layoutForCell(
+                    cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad);
+            if (layout == null || IslandLayout.isBowlArchetype(layout.archetype) || layout.baseRadius < SkyloreConfig.crashMinIslandRadius()) {
                 continue;
             }
-            if (!CrashIslandPlacer.isClearVoid(cellX, cellZ, size)) {
-                continue;
+            long seed = CellularIslandDensityFunction.worldSeed() ^ (CrashIslandSavedData.pack(cellX, cellZ) * 0x9E3779B97F4A7C15L);
+            for (int[] site : CrashSiteBuilder.candidateSites(level, layout, seed)) {
+                if (builds++ >= MAX_BUILD_ATTEMPTS) {
+                    break;
+                }
+                BlockPos stand = CrashSiteBuilder.tryBuild(level, site[0], site[1], seed);
+                if (stand != null) {
+                    return new CrashSite(cellX, cellZ, stand);
+                }
             }
-            return new Assignment(CrashIslandPlacer.voidSite(cellX, cellZ), data.isBuilt(cellX, cellZ));
         }
         return null;
     }
 
+    private record CrashSite(int cellX, int cellZ, BlockPos stand) {}
+
     private static ServerLevel overworld(ServerPlayer player) {
         ServerLevel overworld = player.server.getLevel(Level.OVERWORLD);
         return overworld != null ? overworld : player.serverLevel();
-    }
-
-    private static final class Assignment {
-        final CrashIslandPlacer.Site site;
-        boolean built;
-
-        Assignment(CrashIslandPlacer.Site site, boolean built) {
-            this.site = site;
-            this.built = built;
-        }
     }
 }

@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "skylore_islands:block/cargo_pod"
+    },
+    "facing=east": {
+      "model": "skylore_islands:block/cargo_pod",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "skylore_islands:block/cargo_pod",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "skylore_islands:block/cargo_pod",
+      "y": 270
+    }
+  }
+}
