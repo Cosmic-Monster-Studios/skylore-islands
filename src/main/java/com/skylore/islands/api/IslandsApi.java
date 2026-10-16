@@ -57,6 +57,24 @@ public final class IslandsApi {
                 : Optional.of(new BlockPos(layout.centerX, layout.altitude, layout.centerZ));
     }
 
+    /**
+     * True when the column at (x, z) is island land: the worldgen footprint, rims and islets.
+     * One noise lookup; never loads a chunk. Blocks placed later don't change the answer.
+     */
+    public static boolean isIslandColumn(Level level, int x, int z) {
+        if (!hasIslands(level)) {
+            return false;
+        }
+        // The layout salt is thread-local worldgen state; restore it so callers are unaffected.
+        long previous = CellularIslandDensityFunction.layoutSalt();
+        IslandLayoutBinder.bindFromLevel(level);
+        try {
+            return IslandLayout.hasIslandColumn(x, z);
+        } finally {
+            CellularIslandDensityFunction.setLayoutSalt(previous);
+        }
+    }
+
     private static CellularIslandDensityFunction.IslandLayout layout(Level level, IslandCell cell) {
         if (!hasIslands(level)) {
             return null;
