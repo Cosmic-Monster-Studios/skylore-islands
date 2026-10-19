@@ -10,7 +10,6 @@ import com.skylore.islands.worldgen.density.CellularIslandDensityFunction.FastNo
 public final class IslandVolume {
 
     private static final ThreadLocal<ColumnDensityCache> COLUMN_DENSITY_CACHE = ThreadLocal.withInitial(ColumnDensityCache::new);
-    private static final ThreadLocal<DensitySampleCache> DENSITY_SAMPLE_CACHE = ThreadLocal.withInitial(DensitySampleCache::new);
 
     /** Shared read-only result for columns with no island; never mutated after construction. */
     private static final ColumnDensity INACTIVE_COLUMN = new ColumnDensity();
@@ -32,19 +31,11 @@ public final class IslandVolume {
         long layoutSalt = CellularIslandDensityFunction.layoutSalt();
 
         ColumnDensity column = COLUMN_DENSITY_CACHE.get().get(x, z, cellSize, minAlt, maxAlt, minRad, maxRad, density, worldSeed, layoutSalt);
-        DensitySampleCache sampleCache = DENSITY_SAMPLE_CACHE.get();
         if (!column.active) {
-            sampleCache.store(worldSeed, layoutSalt, cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z, -1.0);
             return -1.0;
         }
-
-        if (sampleCache.matches(worldSeed, layoutSalt, cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z)) {
-            return sampleCache.value;
-        }
-
-        double value = evaluateColumnDensity(column, x, y, z);
-        sampleCache.store(worldSeed, layoutSalt, cellSize, minAlt, maxAlt, minRad, maxRad, density, x, y, z, value);
-        return value;
+        // Interpolation samples each corner once, so a per-sample cache would never hit.
+        return evaluateColumnDensity(column, x, y, z);
     }
 
     public static double calculateIslandDensity(int x, int y, int z, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
@@ -330,6 +321,40 @@ public final class IslandVolume {
         return perp <= 9.0 && along >= 0.52 * effectiveRadius && along <= 0.82 * effectiveRadius;
     }
 
+    /**
+     * Highest Y where this column's density can be positive, or Integer.MIN_VALUE if nowhere.
+     * Mirrors the upper gates in {@link #evaluateColumnDensity}; above it every sample is -1.
+     */
+    public static int solidTopY(int x, int z) {
+        ColumnDensity column = columnDensityAt(x, z, SkyloreConfig.cellSize(), SkyloreConfig.minIslandAltitude(),
+                SkyloreConfig.maxIslandAltitude(), SkyloreConfig.minIslandRadius(), SkyloreConfig.maxIslandRadius());
+        if (!column.active) {
+            return Integer.MIN_VALUE;
+        }
+        double top = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < column.contribCount; i++) {
+            ColumnContrib c = column.contribs[i];
+            double contribTop = Double.NEGATIVE_INFINITY;
+            for (int s = 0; s < c.satCount; s++) {
+                contribTop = Math.max(contribTop, c.altitude + c.sats[s].yOffset + c.sats[s].top);
+            }
+            if (c.shelfHoriz) {
+                contribTop = Math.max(contribTop, c.shelfAlt + 6.0);
+            }
+            if (c.onBody) {
+                contribTop = Math.max(contribTop, c.altitude + Math.max(c.topThickness, 4.0));
+            }
+            top = Math.max(top, Math.min(contribTop, c.maxY));
+        }
+        for (int i = 0; i < column.bridgeCount; i++) {
+            top = Math.max(top, column.bridges[i].topY + 4);
+        }
+        if (top == Double.NEGATIVE_INFINITY) {
+            return Integer.MIN_VALUE;
+        }
+        return Math.min((int) Math.ceil(top) + 1, column.maxY);
+    }
+
     public static double evaluateColumnDensity(ColumnDensity column, int x, int y, int z) {
         if (!column.active || y < column.minY || y > column.maxY) {
             return -1.0;
@@ -536,49 +561,5 @@ public final class IslandVolume {
         double horiz;
         int topY;
         int botY;
-    }
-
-    static final class DensitySampleCache {
-        long worldSeed;
-        long layoutSalt;
-        int cellSize;
-        int minAlt;
-        int maxAlt;
-        int minRad;
-        int maxRad;
-        int density;
-        int x;
-        int y;
-        int z;
-        double value;
-
-        boolean matches(long worldSeed, long layoutSalt, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad, int density, int x, int y, int z) {
-            return this.worldSeed == worldSeed
-                    && this.layoutSalt == layoutSalt
-                    && this.cellSize == cellSize
-                    && this.minAlt == minAlt
-                    && this.maxAlt == maxAlt
-                    && this.minRad == minRad
-                    && this.maxRad == maxRad
-                    && this.density == density
-                    && this.x == x
-                    && this.y == y
-                    && this.z == z;
-        }
-
-        void store(long worldSeed, long layoutSalt, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad, int density, int x, int y, int z, double value) {
-            this.worldSeed = worldSeed;
-            this.layoutSalt = layoutSalt;
-            this.cellSize = cellSize;
-            this.minAlt = minAlt;
-            this.maxAlt = maxAlt;
-            this.minRad = minRad;
-            this.maxRad = maxRad;
-            this.density = density;
-            this.x = x;
-            this.y = y;
-            this.z = z;
-            this.value = value;
-        }
     }
 }

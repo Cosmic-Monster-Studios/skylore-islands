@@ -86,6 +86,36 @@ public final class ChunkGenColumnCache {
         return y > water.seabedY && y <= water.waterLevel ? FILL_FLUID : FILL_NONE;
     }
 
+    /**
+     * Highest Y in the prepared chunk that noise fill can make non-air: the solid top over the
+     * interpolation corner columns, and the basin water levels. Integer.MAX_VALUE when unknown
+     * (no trimming); Integer.MIN_VALUE when the whole chunk is air.
+     */
+    public static int solidTopY(int blockX, int blockZ, int cellWidth) {
+        State state = STATE.get();
+        if (!state.prepared || !state.active || state.chunkX != (blockX >> 4) || state.chunkZ != (blockZ >> 4)
+                || state.layoutSalt != CellularIslandDensityFunction.layoutSalt()
+                || state.worldSeed != CellularIslandDensityFunction.worldSeed()
+                || cellWidth <= 0 || 16 % cellWidth != 0) {
+            return Integer.MAX_VALUE;
+        }
+        int x0 = state.chunkX << 4;
+        int z0 = state.chunkZ << 4;
+        int top = Integer.MIN_VALUE;
+        for (int dx = 0; dx <= 16; dx += cellWidth) {
+            for (int dz = 0; dz <= 16; dz += cellWidth) {
+                top = Math.max(top, IslandVolume.solidTopY(x0 + dx, z0 + dz));
+            }
+        }
+        for (int i = 0; i < 256; i++) {
+            CellularIslandDensityFunction.WaterColumn water = state.water[i];
+            if (water != null) {
+                top = Math.max(top, Math.max(water.waterLevel, water.seabedY));
+            }
+        }
+        return top;
+    }
+
     /** Columns outside the prepared chunk: same rules through the per-column lookups. */
     private static int slowBasinFill(int x, int y, int z) {
         if (!CellularIslandDensityFunction.couldHaveWaterAtY(y)) {
