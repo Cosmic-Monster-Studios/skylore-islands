@@ -108,6 +108,21 @@ public abstract class NoiseBasedChunkGeneratorMixin implements IslandLayoutBinde
             return;
         }
         ChunkOccupancy.stampIsland(chunk);
+    }
+
+    /** doFill runs on a background worker; set up that thread's salt and column cache. */
+    @Inject(method = "doFill", at = @At("HEAD"))
+    private void skylore$prepareColumnCache(
+            Blender blender,
+            StructureManager structures,
+            RandomState random,
+            ChunkAccess chunk,
+            int cellMinY,
+            int cellCountY,
+            CallbackInfoReturnable<ChunkAccess> cir
+    ) {
+        skylore$bindIslandLayout();
+        ChunkPos pos = chunk.getPos();
         ChunkGenColumnCache.ensureFor(pos.getMinBlockX(), pos.getMinBlockZ());
     }
 }

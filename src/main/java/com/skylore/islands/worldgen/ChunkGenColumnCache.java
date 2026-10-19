@@ -45,6 +45,55 @@ public final class ChunkGenColumnCache {
         return STATE.get().waterInterior[index(blockX, blockZ)];
     }
 
+    /** {@link #basinFill} results. */
+    public static final int FILL_NONE = 0;
+    public static final int FILL_FLOOR = 1;
+    public static final int FILL_FLUID = 2;
+    /** final_density is interpolated, so the stone floor can sit a little below the exact seabed. */
+    private static final int FLOOR_PATCH_DEPTH = 4;
+
+    /**
+     * What noise fill should put at an air block: nothing, a basin floor patch, or basin fluid.
+     * One cache lookup per block, and an early out for chunks with no interior water.
+     */
+    public static int basinFill(int x, int y, int z) {
+        State state = STATE.get();
+        if (!state.prepared || state.chunkX != (x >> 4) || state.chunkZ != (z >> 4)
+                || state.layoutSalt != CellularIslandDensityFunction.layoutSalt()
+                || state.worldSeed != CellularIslandDensityFunction.worldSeed()) {
+            return slowBasinFill(x, y, z);
+        }
+        if (!state.active) {
+            return slowBasinFill(x, y, z);
+        }
+        if (!state.anyWaterInterior) {
+            return FILL_NONE;
+        }
+        int idx = index(x, z);
+        if (!state.waterInterior[idx]) {
+            return FILL_NONE;
+        }
+        CellularIslandDensityFunction.WaterColumn water = state.water[idx];
+        if (water == null) {
+            return FILL_NONE;
+        }
+        if (y <= water.seabedY && y > water.seabedY - FLOOR_PATCH_DEPTH) {
+            return FILL_FLOOR;
+        }
+        if (!CellularIslandDensityFunction.couldHaveWaterAtY(y) || state.layouts[idx] == null) {
+            return FILL_NONE;
+        }
+        return y > water.seabedY && y <= water.waterLevel ? FILL_FLUID : FILL_NONE;
+    }
+
+    /** Columns outside the prepared chunk: same rules through the per-column lookups. */
+    private static int slowBasinFill(int x, int y, int z) {
+        if (!CellularIslandDensityFunction.couldHaveWaterAtY(y)) {
+            return FILL_NONE;
+        }
+        return CellularIslandDensityFunction.isInsideInteriorWaterBasin(x, y, z) ? FILL_FLUID : FILL_NONE;
+    }
+
     private static void prepare(int chunkX, int chunkZ) {
         State state = STATE.get();
         state.chunkX = chunkX;
@@ -52,6 +101,7 @@ public final class ChunkGenColumnCache {
         state.layoutSalt = CellularIslandDensityFunction.layoutSalt();
         state.worldSeed = CellularIslandDensityFunction.worldSeed();
         state.prepared = true;
+        state.anyWaterInterior = false;
         state.active = CellularIslandDensityFunction.chunkMightContainIsland(chunkX, chunkZ);
         if (!state.active) {
             return;
@@ -99,6 +149,7 @@ public final class ChunkGenColumnCache {
                         && state.paddedLayouts[padIdx + 1] != null
                         && state.paddedLayouts[padIdx - PAD] != null
                         && state.paddedLayouts[padIdx + PAD] != null;
+                state.anyWaterInterior |= state.waterInterior[idx];
             }
         }
     }
@@ -110,6 +161,7 @@ public final class ChunkGenColumnCache {
     private static final class State {
         boolean prepared;
         boolean active;
+        boolean anyWaterInterior;
         int chunkX;
         int chunkZ;
         long layoutSalt;

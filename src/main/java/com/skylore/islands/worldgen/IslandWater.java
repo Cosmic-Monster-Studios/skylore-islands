@@ -81,9 +81,12 @@ public final class IslandWater {
     }
 
     public static WaterColumn waterColumnAt(int x, int z, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
-        ChunkGenColumnCache.ensureFor(x, z);
         if (ChunkGenColumnCache.isActiveFor(x, z)) {
             return ChunkGenColumnCache.waterAt(x, z);
+        }
+        // Same answer the chunk cache would give, without building it for a one-off structure query.
+        if (CellularIslandDensityFunction.chunkMightContainIsland(x >> 4, z >> 4) && !IslandLayout.hasIslandColumn(x, z)) {
+            return null;
         }
         LongKeyedCache<WaterColumn> cache = WATER_COLUMN_CACHE.get();
         cache.validate(IslandLayout.columnStamp());
