@@ -75,10 +75,17 @@ public final class SkyloreBlocks {
                     .strength(5.0F, 6.0F)
                     .sound(SoundType.NETHERITE_BLOCK));
 
-    /** Shared by the black box and cargo pods; id kept as "black_box" so existing boxes keep their contents. */
+    public static final DeferredBlock<WreckContainerBlock> SKY_CACHE = BLOCKS.registerBlock("sky_cache",
+            WreckContainerBlock::new,
+            BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.STONE)
+                    .strength(3.0F, 6.0F)
+                    .sound(SoundType.STONE));
+
+    /** Shared by the black box, cargo pods and sky caches; id kept as "black_box" so existing boxes keep their contents. */
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<WreckContainerBlockEntity>> WRECK_CONTAINER =
             BLOCK_ENTITIES.register("black_box",
-                    () -> BlockEntityType.Builder.of(WreckContainerBlockEntity::new, BLACK_BOX.get(), CARGO_POD.get()).build(null));
+                    () -> BlockEntityType.Builder.of(WreckContainerBlockEntity::new, BLACK_BOX.get(), CARGO_POD.get(), SKY_CACHE.get()).build(null));
 
     public static final DeferredItem<Item> SHIP_SCRAP = ITEMS.registerSimpleItem("ship_scrap");
 
@@ -89,6 +96,7 @@ public final class SkyloreBlocks {
         ITEMS.registerSimpleBlockItem(SHIP_HULL_FRAME);
         ITEMS.registerSimpleBlockItem(BLACK_BOX);
         ITEMS.registerSimpleBlockItem(CARGO_POD);
+        ITEMS.registerSimpleBlockItem(SKY_CACHE);
     }
 
     private SkyloreBlocks() {}
@@ -109,6 +117,7 @@ public final class SkyloreBlocks {
         } else if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS) {
             event.accept(BLACK_BOX);
             event.accept(CARGO_POD);
+            event.accept(SKY_CACHE);
         } else if (event.getTabKey() == CreativeModeTabs.INGREDIENTS) {
             event.accept(SHIP_SCRAP);
         }

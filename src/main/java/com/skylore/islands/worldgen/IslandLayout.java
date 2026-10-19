@@ -554,14 +554,56 @@ public final class IslandLayout {
         if (cache.key == key) {
             return cache.point;
         }
-        double warpX = FastNoise.noise2D(x * 0.008, z * 0.008, 101) * 45.0 + FastNoise.noise2D(x * 0.03, z * 0.03, 102) * 14.0;
-        double warpZ = FastNoise.noise2D((x + 600) * 0.008, (z + 600) * 0.008, 103) * 45.0 + FastNoise.noise2D((x + 600) * 0.03, (z + 600) * 0.03, 104) * 14.0;
-        double wx = x + warpX;
-        double wz = z + warpZ;
+        double wx = x + warpOffsetX(x, z);
+        double wz = z + warpOffsetZ(x, z);
         WarpedPoint point = new WarpedPoint(wx, wz, Math.floorDiv((int) wx, cellSize), Math.floorDiv((int) wz, cellSize));
         cache.key = key;
         cache.point = point;
         return point;
+    }
+
+    public static double warpOffsetX(int x, int z) {
+        return FastNoise.noise2D(x * 0.008, z * 0.008, 101) * 45.0 + FastNoise.noise2D(x * 0.03, z * 0.03, 102) * 14.0;
+    }
+
+    public static double warpOffsetZ(int x, int z) {
+        return FastNoise.noise2D((x + 600) * 0.008, (z + 600) * 0.008, 103) * 45.0 + FastNoise.noise2D((x + 600) * 0.03, (z + 600) * 0.03, 104) * 14.0;
+    }
+
+    /**
+     * The block column whose warped position is nearest (wx, wz): a damped fixed-point walk,
+     * then a 5x5 search to settle on whole blocks. Deterministic, so every caller agrees.
+     * Returns {x, z, squared warped distance * 1000}.
+     */
+    public static long[] unwarp(double wx, double wz) {
+        double x = wx;
+        double z = wz;
+        for (int i = 0; i < 24; i++) {
+            int bx = (int) Math.floor(x);
+            int bz = (int) Math.floor(z);
+            x += 0.6 * (wx - (bx + warpOffsetX(bx, bz)));
+            z += 0.6 * (wz - (bz + warpOffsetZ(bx, bz)));
+        }
+        int cx = (int) Math.floor(x);
+        int cz = (int) Math.floor(z);
+        long bestX = cx;
+        long bestZ = cz;
+        double best = Double.MAX_VALUE;
+        for (int ox = -2; ox <= 2; ox++) {
+            for (int oz = -2; oz <= 2; oz++) {
+                int px = cx + ox;
+                int pz = cz + oz;
+                double dx = px + warpOffsetX(px, pz) - wx;
+                double dz = pz + warpOffsetZ(px, pz) - wz;
+                double d = dx * dx + dz * dz;
+                if (d < best) {
+                    best = d;
+                    bestX = px;
+                    bestZ = pz;
+                }
+            }
+        }
+        return new long[]{bestX, bestZ, (long) (best * 1000.0)};
     }
 
     public static int nearbyLayoutsForColumn(int x, int z, int cellX, int cellZ,

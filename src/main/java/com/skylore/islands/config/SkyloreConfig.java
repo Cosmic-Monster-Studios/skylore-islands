@@ -18,6 +18,9 @@ public class SkyloreConfig {
         public final ModConfigSpec.IntValue crashMinTreeLogs;
         public final ModConfigSpec.IntValue crashMinIslandRadius;
 
+        public final ModConfigSpec.IntValue skyCacheChance;
+        public final ModConfigSpec.BooleanValue skyCacheInNether;
+
         public final ModConfigSpec.BooleanValue voidFallProtection;
         public final ModConfigSpec.IntValue voidFallRescueY;
 
@@ -68,6 +71,15 @@ public class SkyloreConfig {
                     .defineInRange("minIslandRadius", 40, 20, 512);
             builder.pop();
 
+            builder.push("treasure");
+            skyCacheChance = builder
+                    .comment("One in this many islets and satellites hides a buried Sky Cache. 0 disables them. Applies to newly generated chunks.")
+                    .defineInRange("skyCacheChance", 40, 0, 100000);
+            skyCacheInNether = builder
+                    .comment("Whether Sky Caches also generate on islets in the Nether.")
+                    .define("skyCacheInNether", false);
+            builder.pop();
+
             builder.push("gameplay");
             voidFallProtection = builder
                     .comment("Whether falling into the void below islands automatically rescues the player.")
@@ -93,6 +105,7 @@ public class SkyloreConfig {
     public static final int DEFAULT_CRASH_CRATER_RADIUS = 12;
     public static final int DEFAULT_CRASH_MIN_TREE_LOGS = 12;
     public static final int DEFAULT_CRASH_MIN_ISLAND_RADIUS = 40;
+    public static final int DEFAULT_SKY_CACHE_CHANCE = 40;
 
     static {
         final Pair<Server, ModConfigSpec> specPair = new ModConfigSpec.Builder().configure(Server::new);
@@ -166,6 +179,14 @@ public class SkyloreConfig {
 
     public static int crashMinIslandRadius() {
         return loaded() ? SERVER.crashMinIslandRadius.get() : DEFAULT_CRASH_MIN_ISLAND_RADIUS;
+    }
+
+    public static int skyCacheChance() {
+        return loaded() ? SERVER.skyCacheChance.get() : DEFAULT_SKY_CACHE_CHANCE;
+    }
+
+    public static boolean skyCacheInNether() {
+        return loaded() && SERVER.skyCacheInNether.get();
     }
 
     public static boolean voidFallProtection() {

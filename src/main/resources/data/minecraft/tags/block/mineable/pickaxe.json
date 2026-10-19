@@ -5,6 +5,7 @@
     "skylore_islands:ship_hull_frame",
     "skylore_islands:black_box",
     "skylore_islands:smoldering_hull",
-    "skylore_islands:cargo_pod"
+    "skylore_islands:cargo_pod",
+    "skylore_islands:sky_cache"
   ]
 }

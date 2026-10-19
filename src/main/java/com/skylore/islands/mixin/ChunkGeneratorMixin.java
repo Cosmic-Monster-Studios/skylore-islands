@@ -1,6 +1,8 @@
 package com.skylore.islands.mixin;
 
 import com.skylore.islands.worldgen.ChunkOccupancy;
+import com.skylore.islands.worldgen.IslandLayoutBinder;
+import com.skylore.islands.worldgen.SkyCaches;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -13,6 +15,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Keep structure placement; skip biome features on VOID / VOID_STRUCTURE via PlacedFeatureMixin.
  * Empty void chunks with no structure starts or references skip decoration entirely.
+ * Island chunks then get their Sky Caches.
  */
 @Mixin(ChunkGenerator.class)
 public abstract class ChunkGeneratorMixin {
@@ -39,5 +42,9 @@ public abstract class ChunkGeneratorMixin {
             CallbackInfo ci
     ) {
         ChunkOccupancy.endDecoration();
+        if (ChunkOccupancy.get(chunk).kind == ChunkOccupancy.Kind.ISLAND) {
+            IslandLayoutBinder.bind((ChunkGenerator) (Object) this);
+            SkyCaches.decorate(level, chunk);
+        }
     }
 }
