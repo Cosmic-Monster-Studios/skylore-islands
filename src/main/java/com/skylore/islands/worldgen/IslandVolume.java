@@ -238,16 +238,11 @@ public final class IslandVolume {
     }
 
     public static void fillSatellites(ColumnContrib contrib, CellularIslandDensityFunction.IslandLayout layout, double wx, double wz) {
-        int count = 1 + (int) Math.floorMod(layout.cellHash >> 18, 3);
-        for (int i = 0; i < count; i++) {
-            double ang = ((layout.cellHash >> (8 + i * 6)) & 63) * (Math.PI * 2.0 / 64.0);
-            double distScale = 1.15 + 0.20 * (((layout.cellHash >> (i * 4)) & 3) / 3.0);
-            double orbit = layout.baseRadius * distScale;
-            double rad = 18.0 + ((layout.cellHash >> (i * 5)) & 15);
-            double sx = layout.centerX + Math.cos(ang) * orbit;
-            double sz = layout.centerZ + Math.sin(ang) * orbit;
-            double sdx = wx - sx;
-            double sdz = wz - sz;
+        double[] sats = layout.satellites;
+        for (int o = 0; o < sats.length; o += IslandLayout.SATELLITE_STRIDE) {
+            double rad = sats[o + 2];
+            double sdx = wx - sats[o];
+            double sdz = wz - sats[o + 1];
             double distSq = sdx * sdx + sdz * sdz;
             if (distSq >= rad * rad) {
                 continue;

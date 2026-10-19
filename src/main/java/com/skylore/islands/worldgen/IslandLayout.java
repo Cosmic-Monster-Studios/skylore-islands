@@ -24,6 +24,8 @@ public final class IslandLayout {
     public static final double[] NO_ISLETS = new double[0];
     /** Farthest islet edge past baseRadius * max shape: max radius 14 + max gap 39 + max radius 14. */
     public static final double ISLET_REACH = 68.0;
+    /** Satellite packing in {@link CellularIslandDensityFunction.IslandLayout#satellites}: x, z, radius. */
+    public static final int SATELLITE_STRIDE = 3;
     /** Slack around a chunk's warped bounds; the warp bends by far less than this across 16 blocks. */
     private static final double ISLET_CHUNK_PAD = 4.0;
 
@@ -603,21 +605,38 @@ public final class IslandLayout {
         if (!hasSatellites(layout) || dist < layout.baseRadius * 1.10 || dist > layout.baseRadius * 1.40 + 36.0) {
             return onIslet(layout, wx, wz);
         }
-        int count = 1 + (int) Math.floorMod(layout.cellHash >> 18, 3);
-        for (int i = 0; i < count; i++) {
-            double ang = ((layout.cellHash >> (8 + i * 6)) & 63) * (Math.PI * 2.0 / 64.0);
-            double distScale = 1.15 + 0.20 * (((layout.cellHash >> (i * 4)) & 3) / 3.0);
-            double orbit = layout.baseRadius * distScale;
-            double rad = 18.0 + ((layout.cellHash >> (i * 5)) & 15);
-            double sx = layout.centerX + Math.cos(ang) * orbit;
-            double sz = layout.centerZ + Math.sin(ang) * orbit;
-            double sdx = wx - sx;
-            double sdz = wz - sz;
+        double[] sats = layout.satellites;
+        for (int o = 0; o < sats.length; o += SATELLITE_STRIDE) {
+            double sdx = wx - sats[o];
+            double sdz = wz - sats[o + 1];
+            double rad = sats[o + 2];
             if (sdx * sdx + sdz * sdz < rad * rad) {
                 return true;
             }
         }
         return onIslet(layout, wx, wz);
+    }
+
+    /**
+     * Satellites (radius 18-33) at 1.15-1.35x baseRadius around large land, 1-3 per island.
+     * Positions are in warped space, like the island body.
+     */
+    public static double[] computeSatellites(int centerX, int centerZ, int baseRadius, int archetype, boolean mega, long cellHash) {
+        if (isBowlArchetype(archetype) || !(mega || baseRadius >= 90)) {
+            return NO_ISLETS;
+        }
+        int count = 1 + (int) Math.floorMod(cellHash >> 18, 3);
+        double[] sats = new double[count * SATELLITE_STRIDE];
+        for (int i = 0; i < count; i++) {
+            double ang = ((cellHash >> (8 + i * 6)) & 63) * (Math.PI * 2.0 / 64.0);
+            double distScale = 1.15 + 0.20 * (((cellHash >> (i * 4)) & 3) / 3.0);
+            double orbit = baseRadius * distScale;
+            int o = i * SATELLITE_STRIDE;
+            sats[o] = centerX + Math.cos(ang) * orbit;
+            sats[o + 1] = centerZ + Math.sin(ang) * orbit;
+            sats[o + 2] = 18.0 + ((cellHash >> (i * 5)) & 15);
+        }
+        return sats;
     }
 
     /**

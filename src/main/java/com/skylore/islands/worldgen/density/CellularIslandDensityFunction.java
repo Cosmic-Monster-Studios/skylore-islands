@@ -306,6 +306,8 @@ public class CellularIslandDensityFunction implements DensityFunction.SimpleFunc
         public final long cellHash;
         /** Tiny orbiting islets, packed per {@link com.skylore.islands.worldgen.IslandLayout#ISLET_STRIDE}. */
         public final double[] islets;
+        /** Large-land satellites, packed per {@link com.skylore.islands.worldgen.IslandLayout#SATELLITE_STRIDE}. */
+        public final double[] satellites;
 
         public IslandLayout(int cellX, int cellZ, int centerX, int centerZ, int altitude, int baseRadius, int archetype, boolean mega, long cellHash) {
             this.cellX = cellX;
@@ -320,6 +322,9 @@ public class CellularIslandDensityFunction implements DensityFunction.SimpleFunc
             this.islets = archetype < 0
                     ? com.skylore.islands.worldgen.IslandLayout.NO_ISLETS
                     : com.skylore.islands.worldgen.IslandLayout.computeIslets(centerX, centerZ, baseRadius, archetype, mega, cellHash);
+            this.satellites = archetype < 0
+                    ? com.skylore.islands.worldgen.IslandLayout.NO_ISLETS
+                    : com.skylore.islands.worldgen.IslandLayout.computeSatellites(centerX, centerZ, baseRadius, archetype, mega, cellHash);
         }
     }
 
