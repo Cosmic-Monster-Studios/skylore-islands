@@ -51,8 +51,8 @@ public final class IslandVolume {
         IslandLayout.WarpedPoint warp = IslandLayout.warpedPoint(x, z, cellSize);
         double wx = warp.wx;
         double wz = warp.wz;
-        CellularIslandDensityFunction.IslandLayout[] nearby = IslandLayout.nearbyLayouts();
         int nearbyCount = IslandLayout.nearbyLayoutsForColumn(x, z, warp.cellX, warp.cellZ, cellSize, minAlt, maxAlt, minRad, maxRad);
+        CellularIslandDensityFunction.IslandLayout[] nearby = IslandLayout.nearbyLayouts();
         boolean onFootprint = IslandLayout.columnOnFootprintCached(x, z, wx, wz, nearby, nearbyCount);
 
         ColumnDensity column = new ColumnDensity();

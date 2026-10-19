@@ -132,82 +132,92 @@ public final class IslandWater {
 
         for (int ox = -1; ox <= 1; ox++) {
             for (int oz = -1; oz <= 1; oz++) {
-                int cx = cellX + ox;
-                int cz = cellZ + oz;
-
-                CellularIslandDensityFunction.IslandLayout layout = IslandLayout.layoutForCell(cx, cz, cellSize, minAlt, maxAlt, minRad, maxRad);
+                CellularIslandDensityFunction.IslandLayout layout = IslandLayout.layoutForCell(cellX + ox, cellZ + oz, cellSize, minAlt, maxAlt, minRad, maxRad);
                 if (layout == null) {
                     continue;
                 }
-
-                int archetype = layout.archetype;
-                boolean isMega = layout.mega;
-                int baseRadius = layout.baseRadius;
-                long cellHash = layout.cellHash;
-                int altitude = layout.altitude;
-
-                double dx = wx - layout.centerX;
-                double dz = wz - layout.centerZ;
-                double distSq = dx * dx + dz * dz;
-                if (distSq > baseRadius * baseRadius * IslandLayout.MAX_SHAPE_SCALE_SQ) {
-                    continue;
-                }
-                double dist = Math.sqrt(distSq);
-                double angle = Math.atan2(dz, dx);
-
-                double phase1 = ((cellHash >> 16) & 0xFF) * 0.025;
-                double phase2 = ((cellHash >> 24) & 0xFF) * 0.025;
-
-                double shapeMod = CellularIslandDensityFunction.getShapeMod(archetype, angle, phase1, phase2);
-                double effectiveRadius = baseRadius * shapeMod;
-
-                if (dist >= effectiveRadius) {
-                    continue;
-                }
-
-                double normDist = dist / effectiveRadius;
-                double smoothHoriz = Math.cos(normDist * (Math.PI / 2.0));
-                double macroNoise = IslandVolume.surfaceNoise2D(x, z);
-                double topSurfaceNoise = FastNoise.noise2D(x * 0.035, z * 0.035, 401) * 6.5;
-
-                if (archetype == 4 && normDist < 0.70) {
-                    double seabedRatio = normDist / 0.70;
-                    double basinDepth = 26.0 * (1.0 - Math.pow(seabedRatio, 1.5));
-                    int seabedY = (int) Math.floor(altitude - 4.0 - basinDepth + (topSurfaceNoise + macroNoise * 0.3) * smoothHoriz);
-                    return new WaterColumn(seabedY, altitude - 4, true);
-                }
-                if (archetype == 1 && normDist < 0.45) {
-                    double lakeRatio = normDist / 0.45;
-                    double lakeDepth = 16.0 * (1.0 - Math.pow(lakeRatio, 1.6));
-                    int seabedY = (int) Math.floor(altitude - 4.0 - lakeDepth + (topSurfaceNoise + macroNoise * 0.3) * smoothHoriz);
-                    return new WaterColumn(seabedY, altitude - 4, false);
-                }
-                if (archetype == 5 && normDist < 0.60) {
-                    double swampNoise = FastNoise.noise2D(wx * 0.04, wz * 0.04, 801);
-                    if (swampNoise < -0.15) {
-                        double islandHeight = 34.0 + ((cellHash >> 3) & 15);
-                        double baseTop = (islandHeight * 0.6) * Math.pow(smoothHoriz, 0.7) + (topSurfaceNoise + macroNoise * 0.4) * smoothHoriz;
-                        double poolDepth = 3.0 * (-0.15 - swampNoise) * (1.0 - normDist / 0.60);
-                        int poolBed = (int) Math.floor(altitude + baseTop - poolDepth);
-                        int poolWater = (int) Math.floor(altitude + baseTop);
-                        return new WaterColumn(poolBed, poolWater, false);
-                    }
-                }
-                boolean hasRiver = ((cellHash >> 9) & 3) == 0 && baseRadius >= 75;
-                if (hasRiver && normDist < 0.55) {
-                    double riverNoise = Math.abs(FastNoise.noise2D(wx * 0.012 + 500, wz * 0.012 + 500, 701));
-                    if (riverNoise < 0.07) {
-                        double islandHeight = isMega ? 80.0 : 34.0 + ((cellHash >> 3) & 15);
-                        double baseTop = islandHeight * Math.pow(smoothHoriz, 0.7) + (topSurfaceNoise + macroNoise * 0.5) * smoothHoriz;
-                        double riverDepth = 4.5 * (1.0 - riverNoise / 0.07) * (1.0 - normDist / 0.55);
-                        int riverBed = (int) Math.floor(altitude + baseTop - riverDepth);
-                        int riverWater = (int) Math.floor(altitude + baseTop - 1.0);
-                        return new WaterColumn(riverBed, riverWater, false);
-                    }
+                WaterColumn water = waterColumnOnLayout(layout, x, z, wx, wz);
+                if (water != null) {
+                    return water;
                 }
             }
         }
+        for (CellularIslandDensityFunction.IslandLayout layout : IslandLayout.farLayoutsForCell(cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad)) {
+            WaterColumn water = waterColumnOnLayout(layout, x, z, wx, wz);
+            if (water != null) {
+                return water;
+            }
+        }
 
+        return null;
+    }
+
+    private static WaterColumn waterColumnOnLayout(CellularIslandDensityFunction.IslandLayout layout, int x, int z, double wx, double wz) {
+        int archetype = layout.archetype;
+        boolean isMega = layout.mega;
+        int baseRadius = layout.baseRadius;
+        long cellHash = layout.cellHash;
+        int altitude = layout.altitude;
+
+        double dx = wx - layout.centerX;
+        double dz = wz - layout.centerZ;
+        double distSq = dx * dx + dz * dz;
+        if (distSq > baseRadius * baseRadius * IslandLayout.MAX_SHAPE_SCALE_SQ) {
+            return null;
+        }
+        double dist = Math.sqrt(distSq);
+        double angle = Math.atan2(dz, dx);
+
+        double phase1 = ((cellHash >> 16) & 0xFF) * 0.025;
+        double phase2 = ((cellHash >> 24) & 0xFF) * 0.025;
+
+        double shapeMod = CellularIslandDensityFunction.getShapeMod(archetype, angle, phase1, phase2);
+        double effectiveRadius = baseRadius * shapeMod;
+
+        if (dist >= effectiveRadius) {
+            return null;
+        }
+
+        double normDist = dist / effectiveRadius;
+        double smoothHoriz = Math.cos(normDist * (Math.PI / 2.0));
+        double macroNoise = IslandVolume.surfaceNoise2D(x, z);
+        double topSurfaceNoise = FastNoise.noise2D(x * 0.035, z * 0.035, 401) * 6.5;
+
+        if (archetype == 4 && normDist < 0.70) {
+            double seabedRatio = normDist / 0.70;
+            double basinDepth = 26.0 * (1.0 - Math.pow(seabedRatio, 1.5));
+            int seabedY = (int) Math.floor(altitude - 4.0 - basinDepth + (topSurfaceNoise + macroNoise * 0.3) * smoothHoriz);
+            return new WaterColumn(seabedY, altitude - 4, true);
+        }
+        if (archetype == 1 && normDist < 0.45) {
+            double lakeRatio = normDist / 0.45;
+            double lakeDepth = 16.0 * (1.0 - Math.pow(lakeRatio, 1.6));
+            int seabedY = (int) Math.floor(altitude - 4.0 - lakeDepth + (topSurfaceNoise + macroNoise * 0.3) * smoothHoriz);
+            return new WaterColumn(seabedY, altitude - 4, false);
+        }
+        if (archetype == 5 && normDist < 0.60) {
+            double swampNoise = FastNoise.noise2D(wx * 0.04, wz * 0.04, 801);
+            if (swampNoise < -0.15) {
+                double islandHeight = 34.0 + ((cellHash >> 3) & 15);
+                double baseTop = (islandHeight * 0.6) * Math.pow(smoothHoriz, 0.7) + (topSurfaceNoise + macroNoise * 0.4) * smoothHoriz;
+                double poolDepth = 3.0 * (-0.15 - swampNoise) * (1.0 - normDist / 0.60);
+                int poolBed = (int) Math.floor(altitude + baseTop - poolDepth);
+                int poolWater = (int) Math.floor(altitude + baseTop);
+                return new WaterColumn(poolBed, poolWater, false);
+            }
+        }
+        boolean hasRiver = ((cellHash >> 9) & 3) == 0 && baseRadius >= 75;
+        if (hasRiver && normDist < 0.55) {
+            double riverNoise = Math.abs(FastNoise.noise2D(wx * 0.012 + 500, wz * 0.012 + 500, 701));
+            if (riverNoise < 0.07) {
+                double islandHeight = isMega ? 80.0 : 34.0 + ((cellHash >> 3) & 15);
+                double baseTop = islandHeight * Math.pow(smoothHoriz, 0.7) + (topSurfaceNoise + macroNoise * 0.5) * smoothHoriz;
+                double riverDepth = 4.5 * (1.0 - riverNoise / 0.07) * (1.0 - normDist / 0.55);
+                int riverBed = (int) Math.floor(altitude + baseTop - riverDepth);
+                int riverWater = (int) Math.floor(altitude + baseTop - 1.0);
+                return new WaterColumn(riverBed, riverWater, false);
+            }
+        }
         return null;
     }
 
@@ -254,43 +264,51 @@ public final class IslandWater {
         for (int ox = -1; ox <= 1; ox++) {
             for (int oz = -1; oz <= 1; oz++) {
                 CellularIslandDensityFunction.IslandLayout layout = IslandLayout.layoutForCell(cellX + ox, cellZ + oz, cellSize, minAlt, maxAlt, minRad, maxRad);
-                if (layout == null) {
-                    continue;
-                }
-
-                int archetype = layout.archetype;
-                if (archetype != 4 && archetype != 1 && archetype != 5) {
-                    continue;
-                }
-
-                double dx = wx - layout.centerX;
-                double dz = wz - layout.centerZ;
-                double distSq = dx * dx + dz * dz;
-                if (distSq > layout.baseRadius * layout.baseRadius * IslandLayout.MAX_SHAPE_SCALE_SQ) {
-                    continue;
-                }
-                double dist = Math.sqrt(distSq);
-                double angle = Math.atan2(dz, dx);
-
-                double phase1 = ((layout.cellHash >> 16) & 0xFF) * 0.025;
-                double phase2 = ((layout.cellHash >> 24) & 0xFF) * 0.025;
-
-                double shapeMod = CellularIslandDensityFunction.getShapeMod(archetype, angle, phase1, phase2);
-                double effectiveRadius = layout.baseRadius * shapeMod;
-
-                if (dist < effectiveRadius) {
-                    double normDist = dist / effectiveRadius;
-                    if (archetype == 4 && normDist < 0.70) {
-                        return true;
-                    } else if (archetype == 1 && normDist < 0.45) {
-                        return true;
-                    } else if (archetype == 5 && normDist < 0.60) {
-                        return true;
-                    }
+                if (layout != null && insideOceanBiomeFootprint(layout, wx, wz)) {
+                    return true;
                 }
             }
         }
+        for (CellularIslandDensityFunction.IslandLayout layout : IslandLayout.farLayoutsForCell(cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad)) {
+            if (insideOceanBiomeFootprint(layout, wx, wz)) {
+                return true;
+            }
+        }
 
+        return false;
+    }
+
+    private static boolean insideOceanBiomeFootprint(CellularIslandDensityFunction.IslandLayout layout, double wx, double wz) {
+        int archetype = layout.archetype;
+        if (archetype != 4 && archetype != 1 && archetype != 5) {
+            return false;
+        }
+
+        double dx = wx - layout.centerX;
+        double dz = wz - layout.centerZ;
+        double distSq = dx * dx + dz * dz;
+        if (distSq > layout.baseRadius * layout.baseRadius * IslandLayout.MAX_SHAPE_SCALE_SQ) {
+            return false;
+        }
+        double dist = Math.sqrt(distSq);
+        double angle = Math.atan2(dz, dx);
+
+        double phase1 = ((layout.cellHash >> 16) & 0xFF) * 0.025;
+        double phase2 = ((layout.cellHash >> 24) & 0xFF) * 0.025;
+
+        double shapeMod = CellularIslandDensityFunction.getShapeMod(archetype, angle, phase1, phase2);
+        double effectiveRadius = layout.baseRadius * shapeMod;
+
+        if (dist < effectiveRadius) {
+            double normDist = dist / effectiveRadius;
+            if (archetype == 4 && normDist < 0.70) {
+                return true;
+            } else if (archetype == 1 && normDist < 0.45) {
+                return true;
+            } else if (archetype == 5 && normDist < 0.60) {
+                return true;
+            }
+        }
         return false;
     }
 

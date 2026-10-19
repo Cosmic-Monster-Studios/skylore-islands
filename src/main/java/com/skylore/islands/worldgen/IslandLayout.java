@@ -29,6 +29,11 @@ public final class IslandLayout {
     public static final int SATELLITE_STRIDE = 3;
     /** Slack around a chunk's warped bounds; the warp bends by far less than this across 16 blocks. */
     private static final double ISLET_CHUNK_PAD = 4.0;
+    /** Slack around a cell when listing far layouts, so chunk boxes that poke past the cell are covered. */
+    private static final double FAR_CELL_PAD = 32.0;
+    /** The 3x3 cells every lookup scans first. */
+    public static final int INNER_CELLS = 9;
+    private static final CellularIslandDensityFunction.IslandLayout[] NO_LAYOUTS = new CellularIslandDensityFunction.IslandLayout[0];
 
     private static final int[][] PAIR_DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
     private static final CellularIslandDensityFunction.IslandLayout ABSENT_LAYOUT =
@@ -43,6 +48,11 @@ public final class IslandLayout {
     static final ThreadLocal<long[]> CHUNK_INSIDE_CACHE = ThreadLocal.withInitial(() -> new long[]{Long.MIN_VALUE, 0L});
     private static final ThreadLocal<LongKeyedCache<CellularIslandDensityFunction.IslandLayout>> LAYOUT_CACHE =
             ThreadLocal.withInitial(() -> new LongKeyedCache<>(1024));
+    /** Per cell: layouts beyond the 3x3 whose reach still touches it. Almost always empty. */
+    private static final ThreadLocal<LongKeyedCache<CellularIslandDensityFunction.IslandLayout[]>> FAR_LAYOUT_CACHE =
+            ThreadLocal.withInitial(() -> new LongKeyedCache<>(1024));
+    /** Consecutive columns nearly always share a cell, so check the last one before the keyed cache. */
+    private static final ThreadLocal<FarSlot> FAR_SLOT = ThreadLocal.withInitial(FarSlot::new);
     private static final ThreadLocal<WarpCache> WARP_CACHE = ThreadLocal.withInitial(WarpCache::new);
     /** Structure templates walk Y, then X, then Z, so a one-column cache misses on nearly every block. */
     private static final ThreadLocal<LongKeyedCache<CellularIslandDensityFunction.IslandLayout>> LAYOUT_CONTAINING_CACHE =
@@ -303,8 +313,8 @@ public final class IslandLayout {
         double wz = warp.wz;
         int cellX = warp.cellX;
         int cellZ = warp.cellZ;
-        CellularIslandDensityFunction.IslandLayout[] nearby = NEARBY_LAYOUTS.get();
         int n = nearbyLayoutsForColumn(x, z, cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad);
+        CellularIslandDensityFunction.IslandLayout[] nearby = NEARBY_LAYOUTS.get();
         for (int i = 0; i < n; i++) {
             if (columnOnIslandOrExtra(nearby[i], wx, wz)) {
                 rememberFootprint(x, z, true);
@@ -624,14 +634,30 @@ public final class IslandLayout {
         if (meta[0] == key) {
             return (int) meta[1];
         }
-        int n = collectNearbyLayouts(NEARBY_LAYOUTS.get(), cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad);
+        CellularIslandDensityFunction.IslandLayout[] dest = NEARBY_LAYOUTS.get();
+        CellularIslandDensityFunction.IslandLayout[] far = farLayoutsForCell(cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad);
+        if (dest.length < INNER_CELLS + far.length) {
+            dest = new CellularIslandDensityFunction.IslandLayout[INNER_CELLS + far.length];
+            NEARBY_LAYOUTS.set(dest);
+        }
+        int n = collectNearbyLayouts(dest, far, cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad);
         meta[0] = key;
         meta[1] = n;
         return n;
     }
 
+    /**
+     * The 3x3 layouts around a cell, then any farther layout that reaches it.
+     * dest must hold {@link #INNER_CELLS} plus {@link #farLayoutsForCell}'s length.
+     */
     public static int collectNearbyLayouts(CellularIslandDensityFunction.IslandLayout[] dest, int cellX, int cellZ,
             int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
+        return collectNearbyLayouts(dest, farLayoutsForCell(cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad),
+                cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad);
+    }
+
+    private static int collectNearbyLayouts(CellularIslandDensityFunction.IslandLayout[] dest, CellularIslandDensityFunction.IslandLayout[] far,
+            int cellX, int cellZ, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
         int n = 0;
         for (int ox = -1; ox <= 1; ox++) {
             for (int oz = -1; oz <= 1; oz++) {
@@ -641,7 +667,77 @@ public final class IslandLayout {
                 }
             }
         }
-        return n;
+        System.arraycopy(far, 0, dest, n, far.length);
+        return n + far.length;
+    }
+
+    /**
+     * Layouts outside the 3x3 around a cell whose {@link #layoutSkipRadius} reaches within
+     * {@link #FAR_CELL_PAD} of it. Mega islands and ocean basins can sit near a cell edge and
+     * reach past the next cell, so the 3x3 alone clips their far side and islets.
+     */
+    public static CellularIslandDensityFunction.IslandLayout[] farLayoutsForCell(int cellX, int cellZ,
+            int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
+        FarSlot slot = FAR_SLOT.get();
+        long slotKey = CellularIslandDensityFunction.worldSeed() ^ CellularIslandDensityFunction.layoutSalt() ^ packedXZ(cellX, cellZ);
+        int density = SkyloreConfig.islandDensity();
+        if (slot.key == slotKey && slot.matches(cellSize, minAlt, maxAlt, minRad, maxRad, density)) {
+            return slot.layouts;
+        }
+        CellularIslandDensityFunction.IslandLayout[] layouts = farCellRing(cellSize, minRad, maxRad) <= 1 ? NO_LAYOUTS
+                : farLayoutsForCellUncached(cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad, density);
+        slot.set(slotKey, cellSize, minAlt, maxAlt, minRad, maxRad, density, layouts);
+        return layouts;
+    }
+
+    private static CellularIslandDensityFunction.IslandLayout[] farLayoutsForCellUncached(int cellX, int cellZ,
+            int cellSize, int minAlt, int maxAlt, int minRad, int maxRad, int density) {
+        int ring = farCellRing(cellSize, minRad, maxRad);
+        LongKeyedCache<CellularIslandDensityFunction.IslandLayout[]> cache = FAR_LAYOUT_CACHE.get();
+        cache.validate(LongKeyedCache.stamp(CellularIslandDensityFunction.worldSeed(), CellularIslandDensityFunction.layoutSalt(),
+                cellSize, minAlt, maxAlt, minRad, maxRad, density));
+        long key = packedXZ(cellX, cellZ);
+        CellularIslandDensityFunction.IslandLayout[] cached = cache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        double minX = (double) cellX * cellSize - FAR_CELL_PAD;
+        double minZ = (double) cellZ * cellSize - FAR_CELL_PAD;
+        double maxX = (double) (cellX + 1) * cellSize + FAR_CELL_PAD;
+        double maxZ = (double) (cellZ + 1) * cellSize + FAR_CELL_PAD;
+        CellularIslandDensityFunction.IslandLayout[] found = NO_LAYOUTS;
+        for (int ox = -ring; ox <= ring; ox++) {
+            for (int oz = -ring; oz <= ring; oz++) {
+                if (Math.abs(ox) <= 1 && Math.abs(oz) <= 1) {
+                    continue;
+                }
+                CellularIslandDensityFunction.IslandLayout layout = layoutForCell(cellX + ox, cellZ + oz, cellSize, minAlt, maxAlt, minRad, maxRad);
+                if (layout == null) {
+                    continue;
+                }
+                double dx = layout.centerX - Math.max(minX, Math.min(maxX, layout.centerX));
+                double dz = layout.centerZ - Math.max(minZ, Math.min(maxZ, layout.centerZ));
+                double reach = layoutSkipRadius(layout);
+                if (dx * dx + dz * dz <= reach * reach) {
+                    found = java.util.Arrays.copyOf(found, found.length + 1);
+                    found[found.length - 1] = layout;
+                }
+            }
+        }
+        cache.put(key, found);
+        return found;
+    }
+
+    /**
+     * How many cells out a layout can still reach a cell, padding included: the largest base
+     * radius the config allows, how far its centre can spill past its own cell, and its skip radius.
+     */
+    public static int farCellRing(int cellSize, int minRad, int maxRad) {
+        int largest = Math.max(Math.max(maxRad, minRad), Math.max((int) (maxRad * MEGA_RADIUS_SCALE), Math.max(220, (int) (maxRad * 1.65))));
+        int maxOffset = Math.max(largest + 24 + 32 - 1, cellSize - largest - 25);
+        double spill = Math.max(0, maxOffset - cellSize);
+        double skip = largest * MAX_SHAPE_SCALE + ISLET_REACH;
+        return 1 + (int) Math.floor((spill + skip + FAR_CELL_PAD) / cellSize);
     }
 
     public static boolean columnOnIslandOrExtra(CellularIslandDensityFunction.IslandLayout layout, double wx, double wz) {
@@ -768,23 +864,33 @@ public final class IslandLayout {
         for (int ox = -1; ox <= 1; ox++) {
             for (int oz = -1; oz <= 1; oz++) {
                 CellularIslandDensityFunction.IslandLayout layout = layoutForCell(cellX + ox, cellZ + oz, cellSize, minAlt, maxAlt, minRad, maxRad);
-                if (layout == null) {
-                    continue;
-                }
-                double[] islets = layout.islets;
-                for (int o = 0; o < islets.length; o += ISLET_STRIDE) {
-                    double cx = Math.max(minWx, Math.min(maxWx, islets[o]));
-                    double cz = Math.max(minWz, Math.min(maxWz, islets[o + 1]));
-                    double dx = islets[o] - cx;
-                    double dz = islets[o + 1] - cz;
-                    double reach = islets[o + 2] + ISLET_CHUNK_PAD;
-                    if (dx * dx + dz * dz <= reach * reach) {
-                        return layout;
-                    }
+                if (layout != null && isletTouchesBox(layout, minWx, minWz, maxWx, maxWz)) {
+                    return layout;
                 }
             }
         }
+        for (CellularIslandDensityFunction.IslandLayout layout : farLayoutsForCell(cellX, cellZ, cellSize, minAlt, maxAlt, minRad, maxRad)) {
+            if (isletTouchesBox(layout, minWx, minWz, maxWx, maxWz)) {
+                return layout;
+            }
+        }
         return null;
+    }
+
+    private static boolean isletTouchesBox(CellularIslandDensityFunction.IslandLayout layout,
+            double minWx, double minWz, double maxWx, double maxWz) {
+        double[] islets = layout.islets;
+        for (int o = 0; o < islets.length; o += ISLET_STRIDE) {
+            double cx = Math.max(minWx, Math.min(maxWx, islets[o]));
+            double cz = Math.max(minWz, Math.min(maxWz, islets[o + 1]));
+            double dx = islets[o] - cx;
+            double dz = islets[o + 1] - cz;
+            double reach = islets[o + 2] + ISLET_CHUNK_PAD;
+            if (dx * dx + dz * dz <= reach * reach) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static boolean isLandBridge(CellularIslandDensityFunction.IslandLayout a, CellularIslandDensityFunction.IslandLayout b) {
@@ -920,6 +1026,34 @@ public final class IslandLayout {
     public static final class LayoutSlot {
         public long key = Long.MIN_VALUE;
         public CellularIslandDensityFunction.IslandLayout layout;
+    }
+
+    private static final class FarSlot {
+        long key = Long.MIN_VALUE;
+        int cellSize;
+        int minAlt;
+        int maxAlt;
+        int minRad;
+        int maxRad;
+        int density;
+        CellularIslandDensityFunction.IslandLayout[] layouts;
+
+        boolean matches(int cellSize, int minAlt, int maxAlt, int minRad, int maxRad, int density) {
+            return this.cellSize == cellSize && this.minAlt == minAlt && this.maxAlt == maxAlt
+                    && this.minRad == minRad && this.maxRad == maxRad && this.density == density;
+        }
+
+        void set(long key, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad, int density,
+                CellularIslandDensityFunction.IslandLayout[] layouts) {
+            this.key = key;
+            this.cellSize = cellSize;
+            this.minAlt = minAlt;
+            this.maxAlt = maxAlt;
+            this.minRad = minRad;
+            this.maxRad = maxRad;
+            this.density = density;
+            this.layouts = layouts;
+        }
     }
 
     private static final class WarpCache {

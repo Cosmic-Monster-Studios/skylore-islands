@@ -82,10 +82,13 @@ public final class SkyCaches {
         maxWz += 4.0;
 
         IslandLayout.WarpedPoint center = IslandLayout.warpedPoint(x0 + 8, z0 + 8, cellSize);
-        CellularIslandDensityFunction.IslandLayout[] nearby = new CellularIslandDensityFunction.IslandLayout[9];
-        int n = IslandLayout.collectNearbyLayouts(nearby, center.cellX, center.cellZ, cellSize,
-                SkyloreConfig.minIslandAltitude(), SkyloreConfig.maxIslandAltitude(),
-                SkyloreConfig.minIslandRadius(), SkyloreConfig.maxIslandRadius());
+        int minAlt = SkyloreConfig.minIslandAltitude();
+        int maxAlt = SkyloreConfig.maxIslandAltitude();
+        int minRad = SkyloreConfig.minIslandRadius();
+        int maxRad = SkyloreConfig.maxIslandRadius();
+        int far = IslandLayout.farLayoutsForCell(center.cellX, center.cellZ, cellSize, minAlt, maxAlt, minRad, maxRad).length;
+        CellularIslandDensityFunction.IslandLayout[] nearby = new CellularIslandDensityFunction.IslandLayout[IslandLayout.INNER_CELLS + far];
+        int n = IslandLayout.collectNearbyLayouts(nearby, center.cellX, center.cellZ, cellSize, minAlt, maxAlt, minRad, maxRad);
         for (int i = 0; i < n; i++) {
             CellularIslandDensityFunction.IslandLayout layout = nearby[i];
             double[] islets = layout.islets;
