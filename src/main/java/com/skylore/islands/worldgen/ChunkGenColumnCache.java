@@ -18,7 +18,8 @@ public final class ChunkGenColumnCache {
         int chunkZ = blockZ >> 4;
         State state = STATE.get();
         if (state.prepared && state.chunkX == chunkX && state.chunkZ == chunkZ
-                && state.layoutSalt == CellularIslandDensityFunction.layoutSalt()) {
+                && state.layoutSalt == CellularIslandDensityFunction.layoutSalt()
+                && state.worldSeed == CellularIslandDensityFunction.worldSeed()) {
             return;
         }
         prepare(chunkX, chunkZ);
@@ -28,6 +29,7 @@ public final class ChunkGenColumnCache {
         State state = STATE.get();
         return state.active && state.prepared
                 && state.layoutSalt == CellularIslandDensityFunction.layoutSalt()
+                && state.worldSeed == CellularIslandDensityFunction.worldSeed()
                 && state.chunkX == (blockX >> 4) && state.chunkZ == (blockZ >> 4);
     }
 
@@ -48,6 +50,7 @@ public final class ChunkGenColumnCache {
         state.chunkX = chunkX;
         state.chunkZ = chunkZ;
         state.layoutSalt = CellularIslandDensityFunction.layoutSalt();
+        state.worldSeed = CellularIslandDensityFunction.worldSeed();
         state.prepared = true;
         state.active = CellularIslandDensityFunction.chunkMightContainIsland(chunkX, chunkZ);
         if (!state.active) {
@@ -63,22 +66,18 @@ public final class ChunkGenColumnCache {
         int baseX = chunkX << 4;
         int baseZ = chunkZ << 4;
 
+        // Water right after each column's layout so both reuse the same cached warp point.
         for (int dz = 0; dz < PAD; dz++) {
             for (int dx = 0; dx < PAD; dx++) {
                 int x = baseX + dx - 1;
                 int z = baseZ + dz - 1;
-                state.paddedLayouts[dx + dz * PAD] = CellularIslandDensityFunction.findLayoutContainingUncached(
+                CellularIslandDensityFunction.IslandLayout layout = CellularIslandDensityFunction.findLayoutContainingUncached(
                         x, z, cellSize, minAlt, maxAlt, minRad, maxRad);
-            }
-        }
-
-        for (int dz = 0; dz < 16; dz++) {
-            for (int dx = 0; dx < 16; dx++) {
-                int x = baseX + dx;
-                int z = baseZ + dz;
-                int idx = dx + dz * 16;
-                int padIdx = (dx + 1) + (dz + 1) * PAD;
-                CellularIslandDensityFunction.IslandLayout layout = state.paddedLayouts[padIdx];
+                state.paddedLayouts[dx + dz * PAD] = layout;
+                if (dx == 0 || dz == 0 || dx == PAD - 1 || dz == PAD - 1) {
+                    continue;
+                }
+                int idx = (dx - 1) + (dz - 1) * 16;
                 state.layouts[idx] = layout;
                 state.water[idx] = layout == null
                         ? null
@@ -114,6 +113,7 @@ public final class ChunkGenColumnCache {
         int chunkX;
         int chunkZ;
         long layoutSalt;
+        long worldSeed;
         final CellularIslandDensityFunction.IslandLayout[] layouts = new CellularIslandDensityFunction.IslandLayout[256];
         final CellularIslandDensityFunction.WaterColumn[] water = new CellularIslandDensityFunction.WaterColumn[256];
         final boolean[] waterInterior = new boolean[256];

@@ -11,8 +11,10 @@ import com.skylore.islands.worldgen.density.CellularIslandDensityFunction.WaterC
  */
 public final class IslandWater {
 
-    private static final ThreadLocal<long[]> WATER_COLUMN_CACHE = ThreadLocal.withInitial(() -> new long[]{Long.MIN_VALUE, 0L});
-    private static final ThreadLocal<ColumnSnapshotCache> COLUMN_SNAPSHOT_CACHE = ThreadLocal.withInitial(ColumnSnapshotCache::new);
+    private static final ThreadLocal<LongKeyedCache<WaterColumn>> WATER_COLUMN_CACHE = ThreadLocal.withInitial(() -> new LongKeyedCache<>(2048));
+    /** Template blocks arrive Y, then X, then Z; keep enough columns for a large structure piece. */
+    private static final ThreadLocal<LongKeyedCache<ColumnSnapshot>> COLUMN_SNAPSHOT_CACHE = ThreadLocal.withInitial(() -> new LongKeyedCache<>(4096));
+    private static final WaterColumn NO_WATER = new WaterColumn(0, 0, false);
 
     private IslandWater() {
     }
@@ -83,14 +85,15 @@ public final class IslandWater {
         if (ChunkGenColumnCache.isActiveFor(x, z)) {
             return ChunkGenColumnCache.waterAt(x, z);
         }
-        long key = CellularIslandDensityFunction.worldSeed() ^ CellularIslandDensityFunction.layoutSalt() ^ (((long) x) << 32) ^ (z & 0xFFFFFFFFL);
-        long[] cache = WATER_COLUMN_CACHE.get();
-        if (cache[0] == key) {
-            return decodeWaterColumn(cache[1]);
+        LongKeyedCache<WaterColumn> cache = WATER_COLUMN_CACHE.get();
+        cache.validate(IslandLayout.columnStamp());
+        long key = IslandLayout.packedXZ(x, z);
+        WaterColumn hit = cache.get(key);
+        if (hit != null) {
+            return hit == NO_WATER ? null : hit;
         }
         WaterColumn column = computeWaterColumnUncached(x, z, cellSize, minAlt, maxAlt, minRad, maxRad);
-        cache[0] = key;
-        cache[1] = encodeWaterColumn(column);
+        cache.put(key, column == null ? NO_WATER : column);
         return column;
     }
 
@@ -206,10 +209,13 @@ public final class IslandWater {
     }
 
     public static ColumnSnapshot columnSnapshotAt(int x, int z, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
-        long key = CellularIslandDensityFunction.worldSeed() ^ CellularIslandDensityFunction.layoutSalt() ^ IslandLayout.packedXZ(x, z);
-        ColumnSnapshotCache cache = COLUMN_SNAPSHOT_CACHE.get();
-        if (cache.matches(key, cellSize, minAlt, maxAlt, minRad, maxRad)) {
-            return cache.snapshot;
+        LongKeyedCache<ColumnSnapshot> cache = COLUMN_SNAPSHOT_CACHE.get();
+        cache.validate(LongKeyedCache.stamp(CellularIslandDensityFunction.worldSeed(), CellularIslandDensityFunction.layoutSalt(),
+                cellSize, minAlt, maxAlt, minRad, maxRad, SkyloreConfig.islandDensity()));
+        long key = IslandLayout.packedXZ(x, z);
+        ColumnSnapshot hit = cache.get(key);
+        if (hit != null) {
+            return hit;
         }
 
         CellularIslandDensityFunction.IslandLayout layout = IslandLayout.findLayoutContainingUncached(x, z, cellSize, minAlt, maxAlt, minRad, maxRad);
@@ -220,7 +226,7 @@ public final class IslandWater {
                 && IslandLayout.hasIslandColumn(x, z + 1)
                 && IslandLayout.hasIslandColumn(x, z - 1);
         ColumnSnapshot snapshot = new ColumnSnapshot(layout, waterColumn, waterInterior);
-        cache.store(key, cellSize, minAlt, maxAlt, minRad, maxRad, snapshot);
+        cache.put(key, snapshot);
         return snapshot;
     }
 
@@ -316,35 +322,6 @@ public final class IslandWater {
             return normDist < 0.45;
         } else {
             return normDist < 0.60;
-        }
-    }
-
-    static final class ColumnSnapshotCache {
-        long key = Long.MIN_VALUE;
-        int cellSize;
-        int minAlt;
-        int maxAlt;
-        int minRad;
-        int maxRad;
-        ColumnSnapshot snapshot = new ColumnSnapshot(null, null, false);
-
-        boolean matches(long key, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad) {
-            return this.key == key
-                    && this.cellSize == cellSize
-                    && this.minAlt == minAlt
-                    && this.maxAlt == maxAlt
-                    && this.minRad == minRad
-                    && this.maxRad == maxRad;
-        }
-
-        void store(long key, int cellSize, int minAlt, int maxAlt, int minRad, int maxRad, ColumnSnapshot snapshot) {
-            this.key = key;
-            this.cellSize = cellSize;
-            this.minAlt = minAlt;
-            this.maxAlt = maxAlt;
-            this.minRad = minRad;
-            this.maxRad = maxRad;
-            this.snapshot = snapshot;
         }
     }
 }

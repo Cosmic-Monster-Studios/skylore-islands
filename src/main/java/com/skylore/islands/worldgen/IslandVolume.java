@@ -101,6 +101,13 @@ public final class IslandVolume {
             }
 
             double dist = Math.sqrt(distSq);
+            if (dist >= layout.baseRadius * IslandLayout.MAX_SHAPE_SCALE) {
+                // Outside any shape: only the satellites and islets above can contribute.
+                if (contrib.satCount > 0 && column.contribCount < column.contribs.length) {
+                    column.contribs[column.contribCount++] = contrib;
+                }
+                continue;
+            }
             double angle = Math.atan2(dz, dx);
             long cellHash = layout.cellHash;
             double phase1 = ((cellHash >> 16) & 0xFF) * 0.025;

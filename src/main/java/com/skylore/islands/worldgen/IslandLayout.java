@@ -10,7 +10,8 @@ import com.skylore.islands.worldgen.density.CellularIslandDensityFunction.FastNo
  */
 public final class IslandLayout {
 
-    public static final double MAX_SHAPE_SCALE_SQ = 1.60 * 1.60;
+    public static final double MAX_SHAPE_SCALE = 1.60;
+    public static final double MAX_SHAPE_SCALE_SQ = MAX_SHAPE_SCALE * MAX_SHAPE_SCALE;
     public static final double MEGA_RADIUS_SCALE = 2.10;
     public static final int Y_PAD_BELOW = 200;
     public static final int Y_PAD_ABOVE = 120;
@@ -43,7 +44,9 @@ public final class IslandLayout {
     private static final ThreadLocal<LongKeyedCache<CellularIslandDensityFunction.IslandLayout>> LAYOUT_CACHE =
             ThreadLocal.withInitial(() -> new LongKeyedCache<>(1024));
     private static final ThreadLocal<WarpCache> WARP_CACHE = ThreadLocal.withInitial(WarpCache::new);
-    private static final ThreadLocal<LayoutSlot> LAYOUT_CONTAINING_CACHE = ThreadLocal.withInitial(LayoutSlot::new);
+    /** Structure templates walk Y, then X, then Z, so a one-column cache misses on nearly every block. */
+    private static final ThreadLocal<LongKeyedCache<CellularIslandDensityFunction.IslandLayout>> LAYOUT_CONTAINING_CACHE =
+            ThreadLocal.withInitial(() -> new LongKeyedCache<>(4096));
 
     private IslandLayout() {
     }
@@ -378,10 +381,12 @@ public final class IslandLayout {
         if (ChunkGenColumnCache.isActiveFor(x, z)) {
             return ChunkGenColumnCache.layoutAt(x, z);
         }
-        long key = CellularIslandDensityFunction.worldSeed() ^ CellularIslandDensityFunction.layoutSalt() ^ (((long) x) << 32) ^ (z & 0xFFFFFFFFL);
-        LayoutSlot cache = LAYOUT_CONTAINING_CACHE.get();
-        if (cache.key == key) {
-            return cache.layout;
+        LongKeyedCache<CellularIslandDensityFunction.IslandLayout> cache = LAYOUT_CONTAINING_CACHE.get();
+        cache.validate(columnStamp());
+        long key = packedXZ(x, z);
+        CellularIslandDensityFunction.IslandLayout hit = cache.get(key);
+        if (hit != null) {
+            return hit == ABSENT_LAYOUT ? null : hit;
         }
         CellularIslandDensityFunction.IslandLayout layout = findLayoutContainingUncached(x, z,
                 SkyloreConfig.cellSize(),
@@ -389,9 +394,15 @@ public final class IslandLayout {
                 SkyloreConfig.maxIslandAltitude(),
                 SkyloreConfig.minIslandRadius(),
                 SkyloreConfig.maxIslandRadius());
-        cache.key = key;
-        cache.layout = layout;
+        cache.put(key, layout == null ? ABSENT_LAYOUT : layout);
         return layout;
+    }
+
+    /** Invalidation stamp for per-column caches: seed, salt and every layout config value. */
+    public static long columnStamp() {
+        return LongKeyedCache.stamp(CellularIslandDensityFunction.worldSeed(), CellularIslandDensityFunction.layoutSalt(),
+                SkyloreConfig.cellSize(), SkyloreConfig.minIslandAltitude(), SkyloreConfig.maxIslandAltitude(),
+                SkyloreConfig.minIslandRadius(), SkyloreConfig.maxIslandRadius(), SkyloreConfig.islandDensity());
     }
 
     public static boolean hasIslandColumn(int x, int z) {
@@ -637,12 +648,15 @@ public final class IslandLayout {
         double dx = wx - layout.centerX;
         double dz = wz - layout.centerZ;
         double dist = Math.sqrt(dx * dx + dz * dz);
-        double angle = Math.atan2(dz, dx);
-        double phase1 = ((layout.cellHash >> 16) & 0xFF) * 0.025;
-        double phase2 = ((layout.cellHash >> 24) & 0xFF) * 0.025;
-        double shapeMod = CellularIslandDensityFunction.getShapeMod(layout.archetype, angle, phase1, phase2);
-        if (dist < layout.baseRadius * shapeMod) {
-            return true;
+        // getShapeMod never exceeds MAX_SHAPE_SCALE (1.58 at most), so skip the trig outside it.
+        if (dist < layout.baseRadius * MAX_SHAPE_SCALE) {
+            double angle = Math.atan2(dz, dx);
+            double phase1 = ((layout.cellHash >> 16) & 0xFF) * 0.025;
+            double phase2 = ((layout.cellHash >> 24) & 0xFF) * 0.025;
+            double shapeMod = CellularIslandDensityFunction.getShapeMod(layout.archetype, angle, phase1, phase2);
+            if (dist < layout.baseRadius * shapeMod) {
+                return true;
+            }
         }
         if (!hasSatellites(layout) || dist < layout.baseRadius * 1.10 || dist > layout.baseRadius * 1.40 + 36.0) {
             return onIslet(layout, wx, wz);
