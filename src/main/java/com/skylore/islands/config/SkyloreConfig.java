@@ -55,8 +55,8 @@ public class SkyloreConfig {
 
             builder.push("crash_islands");
             crashIslandsEnabled = builder
-                    .comment("Crash-land each new player on their own forested island on first Overworld join.")
-                    .define("enabled", true);
+                    .comment("Crash-land each new player on their own forested island on first Overworld join. Off by default; packs turn it on.")
+                    .define("enabled", false);
             crashIslandSkipOriginCell = builder
                     .comment("Never assign cell (0,0); that stays the world hub.")
                     .define("skipOriginCell", true);
@@ -82,8 +82,8 @@ public class SkyloreConfig {
 
             builder.push("gameplay");
             voidFallProtection = builder
-                    .comment("Whether falling into the void below islands automatically rescues the player.")
-                    .define("voidFallProtection", true);
+                    .comment("Whether falling into the void below islands automatically rescues the player. Off by default; packs turn it on.")
+                    .define("voidFallProtection", false);
             voidFallRescueY = builder
                     .comment("The Y level threshold in the Overworld where void fall rescue triggers.")
                     .defineInRange("voidFallRescueY", -40, -64, 0);
@@ -100,7 +100,7 @@ public class SkyloreConfig {
     public static final int DEFAULT_MAX_ALTITUDE = 260;
     public static final int DEFAULT_MIN_RADIUS = 45;
     public static final int DEFAULT_MAX_RADIUS = 170;
-    public static final boolean DEFAULT_CRASH_ISLANDS_ENABLED = true;
+    public static final boolean DEFAULT_CRASH_ISLANDS_ENABLED = false;
     public static final boolean DEFAULT_CRASH_ISLAND_SKIP_ORIGIN = true;
     public static final int DEFAULT_CRASH_CRATER_RADIUS = 12;
     public static final int DEFAULT_CRASH_MIN_TREE_LOGS = 12;
@@ -190,7 +190,7 @@ public class SkyloreConfig {
     }
 
     public static boolean voidFallProtection() {
-        return loaded() ? SERVER.voidFallProtection.get() : true;
+        return loaded() && SERVER.voidFallProtection.get();
     }
 
     public static int voidFallRescueY() {

@@ -17,6 +17,6 @@
     "minecraft:igloo",
     "minecraft:trail_ruins",
     "minecraft:stronghold",
-    "ad_astra:oil_well"
+    { "id": "ad_astra:oil_well", "required": false }
   ]
 }
