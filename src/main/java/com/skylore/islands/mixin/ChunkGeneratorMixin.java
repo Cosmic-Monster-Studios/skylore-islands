@@ -12,17 +12,22 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Keep structure placement; skip biome features on VOID / VOID_STRUCTURE via PlacedFeatureMixin.
+ * Empty void chunks with no structure starts or references skip decoration entirely.
  */
 @Mixin(ChunkGenerator.class)
 public abstract class ChunkGeneratorMixin {
 
-    @Inject(method = "applyBiomeDecoration", at = @At("HEAD"))
+    @Inject(method = "applyBiomeDecoration", at = @At("HEAD"), cancellable = true)
     private void skylore$beginVoidDecoration(
             WorldGenLevel level,
             ChunkAccess chunk,
             StructureManager structures,
             CallbackInfo ci
     ) {
+        if (ChunkOccupancy.get(chunk).kind == ChunkOccupancy.Kind.VOID && chunk.getAllReferences().isEmpty()) {
+            ci.cancel();
+            return;
+        }
         ChunkOccupancy.beginDecoration(chunk);
     }
 

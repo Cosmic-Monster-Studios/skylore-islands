@@ -76,6 +76,21 @@ public abstract class NoiseBasedChunkGeneratorMixin implements IslandLayoutBinde
         }
     }
 
+    /** Void chunks skipped noise fill, so there is no terrain for surface rules to touch. */
+    @Inject(method = "buildSurface(Lnet/minecraft/server/level/WorldGenRegion;Lnet/minecraft/world/level/StructureManager;Lnet/minecraft/world/level/levelgen/RandomState;Lnet/minecraft/world/level/chunk/ChunkAccess;)V",
+            at = @At("HEAD"), cancellable = true)
+    private void skylore$skipVoidSurface(
+            WorldGenRegion region,
+            StructureManager structures,
+            RandomState random,
+            ChunkAccess chunk,
+            CallbackInfo ci
+    ) {
+        if (ChunkOccupancy.get(chunk).skipBiomeFeatures()) {
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "fillFromNoise", at = @At("HEAD"), cancellable = true)
     private void skylore$skipVoidNoiseFill(
             Blender blender,
