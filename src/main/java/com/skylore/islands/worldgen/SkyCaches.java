@@ -38,6 +38,8 @@ public final class SkyCaches {
     private static final int BURY_DEPTH = 3;
     /** Unwarp must land within this many blocks of the warped centre (squared, x1000). */
     private static final long MAX_UNWARP_ERROR = 4_000L;
+    private static final int SCAN_ABOVE = 30;
+    private static final int SCAN_BELOW = 10;
     private static final Direction[] FACINGS = {Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST};
 
     private SkyCaches() {
@@ -141,10 +143,14 @@ public final class SkyCaches {
         }
     }
 
-    /** Top ground block near the expected surface, skipping plants, logs and leaves. */
+    /**
+     * Topmost ground block near the expected surface, skipping plants, logs and leaves. Biome
+     * surfaces and terrain noise can lift the real top well above the density estimate, so
+     * search high; scanning down means the first hit has no ground above it.
+     */
     private static int findGround(ChunkAccess chunk, int x, int z, int expectedTop) {
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        for (int y = expectedTop + 10; y >= expectedTop - 10; y--) {
+        for (int y = expectedTop + SCAN_ABOVE; y >= expectedTop - SCAN_BELOW; y--) {
             BlockState state = chunk.getBlockState(cursor.set(x, y, z));
             if (isGround(state)) {
                 return y;
