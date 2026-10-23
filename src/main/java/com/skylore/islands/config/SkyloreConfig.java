@@ -13,6 +13,8 @@ public class SkyloreConfig {
         public final ModConfigSpec.IntValue maxIslandRadius;
 
         public final ModConfigSpec.BooleanValue crashIslandsEnabled;
+        public final ModConfigSpec.BooleanValue arrivalCutscene;
+        public final ModConfigSpec.BooleanValue arrivalCutsceneSkippable;
         public final ModConfigSpec.BooleanValue crashIslandSkipOriginCell;
         public final ModConfigSpec.IntValue crashCraterRadius;
         public final ModConfigSpec.IntValue crashMinTreeLogs;
@@ -69,6 +71,12 @@ public class SkyloreConfig {
             crashMinIslandRadius = builder
                     .comment("Smallest island base radius that can hold a crash site.")
                     .defineInRange("minIslandRadius", 40, 20, 512);
+            arrivalCutscene = builder
+                    .comment("Play the ship-crash cutscene before a new player wakes at their crash site. Singleplayer only.")
+                    .define("arrivalCutscene", true);
+            arrivalCutsceneSkippable = builder
+                    .comment("Let players hold Space to skip the arrival cutscene.")
+                    .define("arrivalCutsceneSkippable", true);
             builder.pop();
 
             builder.push("treasure");
@@ -163,6 +171,14 @@ public class SkyloreConfig {
 
     public static boolean crashIslandsEnabled() {
         return loaded() ? SERVER.crashIslandsEnabled.get() : DEFAULT_CRASH_ISLANDS_ENABLED;
+    }
+
+    public static boolean arrivalCutscene() {
+        return !loaded() || SERVER.arrivalCutscene.get();
+    }
+
+    public static boolean arrivalCutsceneSkippable() {
+        return !loaded() || SERVER.arrivalCutsceneSkippable.get();
     }
 
     public static boolean crashIslandSkipOriginCell() {

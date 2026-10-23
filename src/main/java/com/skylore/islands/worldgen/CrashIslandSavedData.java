@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
@@ -24,6 +25,7 @@ public class CrashIslandSavedData extends SavedData {
     private final Map<Long, UUID> claimedCells = new HashMap<>();
     private final Set<Long> builtCells = new HashSet<>();
     private final Map<Long, BlockPos> sites = new HashMap<>();
+    private final Set<UUID> sawCutscene = new HashSet<>();
 
     public static CrashIslandSavedData get(ServerLevel overworld) {
         return overworld.getDataStorage().computeIfAbsent(
@@ -56,6 +58,10 @@ public class CrashIslandSavedData extends SavedData {
             if (row.contains("siteY")) {
                 data.sites.put(key, new BlockPos(row.getInt("siteX"), row.getInt("siteY"), row.getInt("siteZ")));
             }
+        }
+        ListTag saw = tag.getList("sawCutscene", Tag.TAG_INT_ARRAY);
+        for (Tag uuid : saw) {
+            data.sawCutscene.add(NbtUtils.loadUUID(uuid));
         }
         return data;
     }
@@ -91,6 +97,11 @@ public class CrashIslandSavedData extends SavedData {
             built.add(row);
         }
         tag.put("built", built);
+        ListTag saw = new ListTag();
+        for (UUID uuid : sawCutscene) {
+            saw.add(NbtUtils.createUUID(uuid));
+        }
+        tag.put("sawCutscene", saw);
         return tag;
     }
 
@@ -142,6 +153,22 @@ public class CrashIslandSavedData extends SavedData {
     /** Stand position of a crash site, or null for legacy void-island leases. */
     public BlockPos site(int cellX, int cellZ) {
         return sites.get(pack(cellX, cellZ));
+    }
+
+    public boolean sawCutscene(UUID uuid) {
+        return sawCutscene.contains(uuid);
+    }
+
+    public void markSawCutscene(UUID uuid) {
+        if (sawCutscene.add(uuid)) {
+            setDirty();
+        }
+    }
+
+    /** Stand position of a player's built crash site, or null. */
+    public BlockPos standOf(UUID uuid) {
+        Long key = playerCells.get(uuid);
+        return key != null && builtCells.contains(key) ? sites.get(key) : null;
     }
 
     public int takeNextSeq() {

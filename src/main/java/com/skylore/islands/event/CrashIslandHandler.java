@@ -4,6 +4,7 @@ import com.skylore.islands.SkyloreIslands;
 import com.skylore.islands.api.CrashSiteBuiltEvent;
 import com.skylore.islands.api.IslandCell;
 import com.skylore.islands.config.SkyloreConfig;
+import com.skylore.islands.cutscene.ArrivalCutscene;
 import com.skylore.islands.gameplay.CrashArrival;
 import com.skylore.islands.gameplay.PlayerTasks;
 import com.skylore.islands.worldgen.CrashIslandCells;
@@ -102,11 +103,6 @@ public class CrashIslandHandler {
             fresh = true;
             builtCell = new IslandCell(crash.cellX, crash.cellZ);
         }
-        player.teleportTo(stand.x, stand.y, stand.z);
-        if (fresh) {
-            CrashArrival.wakeUp(player);
-            NeoForge.EVENT_BUS.post(new CrashSiteBuiltEvent(player, builtCell, BlockPos.containing(stand)));
-        }
         BlockPos spawn = BlockPos.containing(stand);
         if (announce || player.getRespawnPosition() == null) {
             // forced: vanilla clears non-forced spawns that have no bed/anchor block.
@@ -115,6 +111,31 @@ public class CrashIslandHandler {
         if (announce) {
             SkyloreIslands.LOGGER.info("Crash site for {} -> {}", player.getGameProfile().getName(), spawn);
         }
+        if (fresh && ArrivalCutscene.eligible(player)) {
+            // The cutscene ends in arrive(), which does the teleport and wake-up below.
+            ArrivalCutscene.start(player, spawn);
+            return;
+        }
+        player.teleportTo(stand.x, stand.y, stand.z);
+        if (fresh) {
+            CrashArrival.wakeUp(player);
+            NeoForge.EVENT_BUS.post(new CrashSiteBuiltEvent(player, builtCell, spawn));
+        }
+    }
+
+    /** Lands a player on their already-built crash site with the fresh-arrival wake-up, after the cutscene. */
+    public static void arrive(ServerPlayer player) {
+        ServerLevel level = overworld(player);
+        CrashIslandSavedData data = CrashIslandSavedData.get(level);
+        int[] assigned = data.assignedCell(player.getUUID());
+        BlockPos site = data.standOf(player.getUUID());
+        if (assigned == null || site == null) {
+            return;
+        }
+        Vec3 stand = CrashSiteBuilder.standAt(level, site);
+        player.teleportTo(level, stand.x, stand.y, stand.z, player.getYRot(), 0.0F);
+        CrashArrival.wakeUp(player);
+        NeoForge.EVENT_BUS.post(new CrashSiteBuiltEvent(player, new IslandCell(assigned[0], assigned[1]), BlockPos.containing(stand)));
     }
 
     /** Walks the cell spiral for an unclaimed forested island and blasts a crash site into it. */

@@ -1,0 +1,167 @@
+{
+  "_comment": "Arrival cutscene dialogue. t is seconds from the start; impact is at 85. alt speaks when the speaker's species is the player's own; no alt means the line is dropped. Text is in lang/*.json under cutscene.skylore_islands.arrival.<id>.",
+  "lines": [
+    {
+      "t": 7,
+      "speaker": "fortis",
+      "alt": "laevis",
+      "key": "cutscene.skylore_islands.arrival.3"
+    },
+    {
+      "t": 11,
+      "speaker": "automaton",
+      "alt": "teknari",
+      "key": "cutscene.skylore_islands.arrival.4"
+    },
+    {
+      "t": 15,
+      "speaker": "teknari",
+      "alt": "automaton",
+      "key": "cutscene.skylore_islands.arrival.5"
+    },
+    {
+      "t": 19,
+      "speaker": "automaton",
+      "alt": "fortis",
+      "key": "cutscene.skylore_islands.arrival.6"
+    },
+    {
+      "t": 23,
+      "speaker": "laevis",
+      "alt": "beryl",
+      "key": "cutscene.skylore_islands.arrival.7"
+    },
+    {
+      "t": 27,
+      "speaker": "beryl",
+      "alt": "enoki",
+      "key": "cutscene.skylore_islands.arrival.8"
+    },
+    {
+      "t": 31,
+      "speaker": "tenebris",
+      "alt": "automaton",
+      "key": "cutscene.skylore_islands.arrival.9"
+    },
+    {
+      "t": 34,
+      "speaker": "enoki",
+      "alt": "fortis",
+      "key": "cutscene.skylore_islands.arrival.10"
+    },
+    {
+      "t": 37,
+      "speaker": "tenebris",
+      "alt": "teknari",
+      "key": "cutscene.skylore_islands.arrival.11"
+    },
+    {
+      "t": 39,
+      "speaker": "automaton",
+      "alt": "",
+      "key": "cutscene.skylore_islands.arrival.12"
+    },
+    {
+      "t": 44,
+      "speaker": "ship",
+      "alt": "",
+      "key": "cutscene.skylore_islands.arrival.14"
+    },
+    {
+      "t": 46,
+      "speaker": "teknari",
+      "alt": "automaton",
+      "key": "cutscene.skylore_islands.arrival.15"
+    },
+    {
+      "t": 49,
+      "speaker": "fortis",
+      "alt": "laevis",
+      "key": "cutscene.skylore_islands.arrival.16"
+    },
+    {
+      "t": 52,
+      "speaker": "ship",
+      "alt": "",
+      "key": "cutscene.skylore_islands.arrival.17"
+    },
+    {
+      "t": 55,
+      "speaker": "enoki",
+      "alt": "beryl",
+      "key": "cutscene.skylore_islands.arrival.18"
+    },
+    {
+      "t": 58,
+      "speaker": "tenebris",
+      "alt": "fortis",
+      "key": "cutscene.skylore_islands.arrival.19"
+    },
+    {
+      "t": 62,
+      "speaker": "automaton",
+      "alt": "teknari",
+      "key": "cutscene.skylore_islands.arrival.20"
+    },
+    {
+      "t": 65,
+      "speaker": "ship",
+      "alt": "",
+      "key": "cutscene.skylore_islands.arrival.21"
+    },
+    {
+      "t": 67,
+      "speaker": "laevis",
+      "alt": "fortis",
+      "key": "cutscene.skylore_islands.arrival.22"
+    },
+    {
+      "t": 70,
+      "speaker": "teknari",
+      "alt": "fortis",
+      "key": "cutscene.skylore_islands.arrival.23"
+    },
+    {
+      "t": 73,
+      "speaker": "ship",
+      "alt": "",
+      "key": "cutscene.skylore_islands.arrival.24"
+    },
+    {
+      "t": 75,
+      "speaker": "beryl",
+      "alt": "enoki",
+      "key": "cutscene.skylore_islands.arrival.25"
+    },
+    {
+      "t": 78,
+      "speaker": "laevis",
+      "alt": "beryl",
+      "key": "cutscene.skylore_islands.arrival.27"
+    },
+    {
+      "t": 79.2,
+      "speaker": "teknari",
+      "alt": "automaton",
+      "key": "cutscene.skylore_islands.arrival.28"
+    },
+    {
+      "t": 80.3,
+      "speaker": "fortis",
+      "alt": "tenebris",
+      "key": "cutscene.skylore_islands.arrival.29"
+    },
+    {
+      "t": 81,
+      "speaker": "ship",
+      "alt": "",
+      "key": "cutscene.skylore_islands.arrival.30"
+    },
+    {
+      "t": 83,
+      "speaker": "automaton",
+      "alt": "teknari",
+      "key": "cutscene.skylore_islands.arrival.31"
+    }
+  ]
+}
