@@ -1,44 +1,69 @@
 package com.skylore.islands.client.cutscene;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.SlabType;
+import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * The sphere ship, in ship-local block coordinates centred on (0,0,0) with the nose along +Z.
- * Built procedurally so the cutscene needs no structure file; seats sit in a ring on the deck.
+ * The sphere ship, in ship-local block coordinates around block (0,0,0) with the nose along +Z.
+ * Built from Ad Astra and Refurbished Furniture parts when those mods are installed, and
+ * from vanilla stand-ins when they are not. Seats are armchairs, one block each, so crew sit square in them.
  */
 public final class ShipModel {
-    public static final int RADIUS = 7;
-    /** Top of the seat slabs, where a sitting crew member's hips rest. */
-    public static final double SEAT_TOP = -2.5;
-    public static final double SEAT_RING = 3.2;
-    /** Seat angles in degrees from the nose; 0 is the player's, the rest are the crew's, in order. */
-    public static final float[] SEAT_ANGLES = {0, -35, 35, -70, 70, -110, 110, 180};
-    /** Where the player's eyes are when seated. */
-    public static final Vec3 PLAYER_EYE = new Vec3(0.0, -1.6, SEAT_RING);
-
+    public static final int RADIUS = 8;
     private static final int FLOOR_Y = -4;
+    private static final int SEAT_Y = FLOOR_Y + 1;
+
+    /** A chair: its block, and which way its occupant faces (degrees, 0 = the nose, 90 = +X). */
+    public record Seat(BlockPos pos, float yaw) {
+        /** Where a sitter's hips rest: the middle of the seat cushion. */
+        public Vec3 hips() {
+            return new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+        }
+    }
+
+    /** Seat 0 is the player's, the rest are the crew's in order. */
+    public static final List<Seat> SEATS = List.of(
+            new Seat(new BlockPos(0, SEAT_Y, 3), 0),
+            new Seat(new BlockPos(-2, SEAT_Y, 3), 0),
+            new Seat(new BlockPos(2, SEAT_Y, 3), 0),
+            new Seat(new BlockPos(-4, SEAT_Y, 0), -90),
+            new Seat(new BlockPos(4, SEAT_Y, 0), 90),
+            new Seat(new BlockPos(-2, SEAT_Y, -3), 180),
+            new Seat(new BlockPos(2, SEAT_Y, -3), 180),
+            new Seat(new BlockPos(0, SEAT_Y, -3), 180));
+    /** Where the player's eyes are when seated. */
+    public static final Vec3 PLAYER_EYE = SEATS.get(0).hips().add(0.0, 0.95, 0.0);
 
     private final Map<BlockPos, BlockState> blocks = new HashMap<>();
 
     public ShipModel() {
-        BlockState hull = Blocks.WHITE_CONCRETE.defaultBlockState();
-        BlockState panel = Blocks.LIGHT_GRAY_CONCRETE.defaultBlockState();
+        BlockState hull = block("ad_astra:iron_plateblock", Blocks.WHITE_CONCRETE);
+        BlockState hullPanel = block("ad_astra:iron_panel", Blocks.LIGHT_GRAY_CONCRETE);
+        BlockState belly = block("ad_astra:steel_plateblock", Blocks.GRAY_CONCRETE);
+        BlockState trim = block("ad_astra:desh_plating", Blocks.ORANGE_TERRACOTTA);
         BlockState window = Blocks.LIGHT_BLUE_STAINED_GLASS.defaultBlockState();
-        BlockState trim = Blocks.POLISHED_DEEPSLATE.defaultBlockState();
-        BlockState light = Blocks.SEA_LANTERN.defaultBlockState();
-        BlockState floor = Blocks.POLISHED_ANDESITE.defaultBlockState();
-        BlockState seat = Blocks.SMOOTH_QUARTZ_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.BOTTOM);
-        BlockState desk = Blocks.POLISHED_DEEPSLATE_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.BOTTOM);
-        BlockState core = Blocks.BEACON.defaultBlockState();
-        BlockState coreCase = Blocks.GLASS.defaultBlockState();
+        BlockState ceilingLight = with(block("ad_astra:glowing_iron_pillar", Blocks.SEA_LANTERN), "axis", "y");
+        BlockState engineCase = block("ad_astra:encased_desh_block", Blocks.POLISHED_BLACKSTONE);
+        BlockState engineGlow = with(block("ad_astra:glowing_desh_pillar", Blocks.SHROOMLIGHT), "axis", "z");
+        BlockState floor = block("ad_astra:steel_plating", Blocks.POLISHED_ANDESITE);
+        BlockState floorRing = block("ad_astra:steel_panel", Blocks.SMOOTH_STONE);
+        BlockState vent = block("ad_astra:vent", Blocks.IRON_TRAPDOOR);
+        BlockState core = with(block("ad_astra:glowing_desh_pillar", Blocks.SEA_LANTERN), "axis", "y");
+        BlockState coreCap = block("ad_astra:encased_steel_block", Blocks.IRON_BLOCK);
+        BlockState console = with(block("ad_astra:steel_plating_slab", Blocks.POLISHED_DEEPSLATE_SLAB), "type", "bottom");
+        BlockState antenna = with(block("ad_astra:steel_pillar", Blocks.IRON_BARS), "axis", "y");
+        BlockState beacon = with(block("ad_astra:glowing_ostrum_pillar", Blocks.REDSTONE_LAMP), "axis", "y");
 
         for (int x = -RADIUS - 1; x <= RADIUS + 1; x++) {
             for (int y = -RADIUS - 1; y <= RADIUS + 1; y++) {
@@ -46,14 +71,21 @@ public final class ShipModel {
                     double d = Math.sqrt(x * x + y * y + z * z);
                     if (d > RADIUS - 0.5 && d <= RADIUS + 0.5) {
                         BlockState state;
-                        if (y >= -2 && y <= 1 && z >= -2) {
+                        // A viewing band round the front half and a bigger canopy over the nose.
+                        boolean band = y >= -1 && y <= 0 && z >= 0;
+                        boolean canopy = z >= 5 && y >= -2 && y <= 3 && Math.abs(x) <= 4;
+                        if (band || canopy) {
                             state = window;
+                        } else if (z <= -RADIUS + 1 && Math.abs(x) <= 2 && Math.abs(y) <= 2) {
+                            state = Math.abs(x) <= 1 && Math.abs(y) <= 1 ? engineGlow : engineCase;
                         } else if (y >= RADIUS - 1 && Math.abs(x) <= 1 && Math.abs(z) <= 1) {
-                            state = light;
-                        } else if (z <= -RADIUS + 1 && Math.abs(x) <= 1 && Math.abs(y) <= 1) {
-                            state = light; // engine glow
-                        } else if (y == -3 || (Math.abs(x) + Math.abs(z)) % 5 == 0 && y > 1) {
-                            state = panel;
+                            state = ceilingLight;
+                        } else if (y == 5 && Math.floorMod(x + z, 4) == 0) {
+                            state = ceilingLight;
+                        } else if (y <= -6) {
+                            state = belly;
+                        } else if (y == 3 || y == -5 || Math.abs(x) == 1 && y > -5) {
+                            state = hullPanel;
                         } else {
                             state = hull;
                         }
@@ -61,27 +93,81 @@ public final class ShipModel {
                     } else if (d > RADIUS + 0.5 && d <= RADIUS + 1.3 && y == -3) {
                         put(x, y, z, trim); // equator ring
                     } else if (d <= RADIUS - 0.5 && y == FLOOR_Y) {
-                        put(x, y, z, floor);
+                        boolean ring = Math.abs(d - 5.5) < 0.6;
+                        put(x, y, z, ring && Math.floorMod(x + z, 3) == 0 ? vent : ring ? floorRing : floor);
                     }
                 }
             }
         }
-        for (int y = FLOOR_Y + 1; y <= RADIUS - 2; y++) {
-            put(0, y, 0, y % 2 == 0 ? core : coreCase);
+        // The reactor core runs floor to ceiling in the middle.
+        put(0, SEAT_Y, 0, coreCap);
+        for (int y = SEAT_Y + 1; y <= RADIUS - 3; y++) {
+            put(0, y, 0, core);
         }
-        for (float angle : SEAT_ANGLES) {
-            Vec3 s = seat(angle);
-            put((int) Math.floor(s.x), FLOOR_Y + 1, (int) Math.floor(s.z), seat);
+        put(0, RADIUS - 2, 0, coreCap);
+        for (int y = RADIUS + 1; y <= RADIUS + 2; y++) {
+            put(0, y, 0, antenna);
         }
-        for (int x = -2; x <= 2; x++) {
-            put(x, FLOOR_Y + 1, 5, desk);
+        put(0, RADIUS + 3, 0, beacon);
+
+        for (Seat seat : SEATS) {
+            put(seat.pos, chair(seat.yaw));
         }
+        // Dashboard ahead of the front row, side stations and the engineering bench behind.
+        for (int x = -3; x <= 3; x++) {
+            put(x, SEAT_Y, 5, console);
+        }
+        BlockState computer = block("refurbished_furniture:computer", Blocks.LECTERN);
+        put(-3, SEAT_Y + 1, 5, facing(computer, 0));
+        put(3, SEAT_Y + 1, 5, facing(computer, 0));
+        for (int z = -1; z <= 1; z++) {
+            put(-6, SEAT_Y, z, console);
+            put(6, SEAT_Y, z, console);
+        }
+        put(-6, SEAT_Y + 1, 0, facing(computer, -90));
+        put(6, SEAT_Y + 1, 0, facing(computer, 90));
+        for (int x = -3; x <= 3; x++) {
+            put(x, SEAT_Y, -5, console);
+        }
+        put(0, SEAT_Y + 1, -5, facing(computer, 180));
     }
 
-    /** Ship-local position of the seat at this angle (the centre of the seat top). */
-    public static Vec3 seat(float angleDeg) {
-        double a = Math.toRadians(angleDeg);
-        return new Vec3(Math.sin(a) * SEAT_RING, SEAT_TOP, Math.cos(a) * SEAT_RING);
+    /** A padded armchair (Refurbished Furniture's single sofa, or a steel stair) with its back behind someone facing {@code yaw}. */
+    private static BlockState chair(float yaw) {
+        BlockState chair = block("refurbished_furniture:gray_sofa",
+                BuiltInRegistries.BLOCK.getOptional(ResourceLocation.parse("ad_astra:steel_plating_stairs")).orElse(Blocks.POLISHED_ANDESITE_STAIRS));
+        // Both name their back side "facing".
+        return with(chair, "facing", direction(yaw + 180.0F));
+    }
+
+    /** Something with a front (a screen) turned to face whoever sits looking at {@code yaw}. */
+    private static BlockState facing(BlockState state, float sitterYaw) {
+        return with(state, "facing", direction(sitterYaw + 180.0F));
+    }
+
+    private static String direction(float yaw) {
+        int quarter = Math.floorMod(Math.round(yaw / 90.0F), 4);
+        return switch (quarter) {
+            case 0 -> "south";
+            case 1 -> "east";
+            case 2 -> "north";
+            default -> "west";
+        };
+    }
+
+    private static BlockState block(String id, Block fallback) {
+        Optional<Block> block = BuiltInRegistries.BLOCK.getOptional(ResourceLocation.parse(id));
+        return block.orElse(fallback).defaultBlockState();
+    }
+
+    /** Sets a property by name if the block has it, so modded and vanilla stand-ins share one call. */
+    private static BlockState with(BlockState state, String name, String value) {
+        Property<?> property = state.getBlock().getStateDefinition().getProperty(name);
+        return property == null ? state : set(state, property, value);
+    }
+
+    private static <T extends Comparable<T>> BlockState set(BlockState state, Property<T> property, String value) {
+        return property.getValue(value).map(v -> state.setValue(property, v)).orElse(state);
     }
 
     /** A point on the outer hull, for sparks and venting. */
@@ -90,7 +176,11 @@ public final class ShipModel {
     }
 
     private void put(int x, int y, int z, BlockState state) {
-        blocks.put(new BlockPos(x, y, z), state);
+        put(new BlockPos(x, y, z), state);
+    }
+
+    private void put(BlockPos pos, BlockState state) {
+        blocks.put(pos, state);
     }
 
     public Map<BlockPos, BlockState> blocks() {

@@ -12,9 +12,11 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
+import com.mojang.brigadier.arguments.FloatArgumentType;
 import net.minecraft.commands.Commands;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
@@ -42,7 +44,7 @@ public final class ArrivalCutscene {
     /** Survives a logout mid-scene so the next login still lands the player properly. */
     private static final String ARRIVING_TAG = SkyloreIslands.MOD_ID + ":arriving";
     private static final Vec3 TRANSIT_ANCHOR = new Vec3(0.5, 128.0, 0.5);
-    private static final int MAX_PLAY_TICKS = 20 * 150;
+    private static final int MAX_PLAY_TICKS = 20 * 240;
 
     private static final Map<UUID, Session> SESSIONS = new HashMap<>();
 
@@ -64,6 +66,8 @@ public final class ArrivalCutscene {
     public static void start(ServerPlayer player, BlockPos stand) {
         SESSIONS.put(player.getUUID(), new Session(stand));
         player.getPersistentData().putBoolean(ARRIVING_TAG, true);
+        // Nausea would warp the calm opening.
+        player.removeEffect(MobEffects.CONFUSION);
         send(player, CutscenePayloads.OFFER, stand, "");
     }
 
@@ -98,6 +102,12 @@ public final class ArrivalCutscene {
                 player.teleportTo(player.server.overworld(), stand.getX() + 0.5, stand.getY() + 0.5, stand.getZ() + 0.5,
                         player.getYRot(), 0.0F);
             }
+            case CutscenePayloads.IMPACT -> {
+                if (session.stage == Stage.APPROACH) {
+                    // The crater appears under the blast, not a moment before.
+                    CrashIslandHandler.impact(player);
+                }
+            }
             case CutscenePayloads.END -> finish(player);
             default -> {}
         }
@@ -118,14 +128,28 @@ public final class ArrivalCutscene {
     public static void onRegisterCommands(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal(SkyloreIslands.MOD_ID)
                 .requires(source -> source.hasPermission(2))
-                .then(Commands.literal("cutscene").executes(context -> {
-                    ServerPlayer player = context.getSource().getPlayerOrException();
-                    BlockPos stand = CrashIslandSavedData.get(player.server.overworld()).standOf(player.getUUID());
-                    boolean test = stand == null;
-                    start(player, test ? player.blockPosition() : stand);
-                    SESSIONS.get(player.getUUID()).test = test;
-                    return 1;
-                })));
+                .then(Commands.literal("cutscene")
+                        .executes(context -> replay(context.getSource().getPlayerOrException(), 0.0F, false))
+                        .then(Commands.argument("from", FloatArgumentType.floatArg(0.0F, 200.0F))
+                                .executes(context -> replay(context.getSource().getPlayerOrException(),
+                                        FloatArgumentType.getFloat(context, "from"), false))
+                                .then(Commands.literal("hold")
+                                        .executes(context -> replay(context.getSource().getPlayerOrException(),
+                                                FloatArgumentType.getFloat(context, "from"), true))))));
+    }
+
+    private static int replay(ServerPlayer player, float from, boolean hold) {
+        BlockPos stand = CrashIslandSavedData.get(player.server.overworld()).standOf(player.getUUID());
+        boolean test = stand == null;
+        SESSIONS.put(player.getUUID(), new Session(test ? player.blockPosition() : stand));
+        Session session = SESSIONS.get(player.getUUID());
+        session.test = test;
+        session.from = from;
+        session.hold = hold;
+        player.removeEffect(MobEffects.CONFUSION);
+        player.getPersistentData().putBoolean(ARRIVING_TAG, true);
+        send(player, CutscenePayloads.OFFER, session.stand, "");
+        return 1;
     }
 
     /** Puts the player on their crash site with the normal wake-up, whatever stage they got to. */
@@ -144,8 +168,9 @@ public final class ArrivalCutscene {
     }
 
     private static void send(ServerPlayer player, int kind, BlockPos stand, String species) {
+        Session session = SESSIONS.get(player.getUUID());
         PacketDistributor.sendToPlayer(player, new CutscenePayloads.ToClient(kind, stand, species,
-                SkyloreConfig.arrivalCutsceneSkippable()));
+                SkyloreConfig.arrivalCutsceneSkippable(), session == null ? 0.0F : session.from, session != null && session.hold));
     }
 
     @SubscribeEvent
@@ -256,6 +281,8 @@ public final class ArrivalCutscene {
         Stage stage = Stage.OFFERED;
         int startTick;
         boolean test;
+        float from;
+        boolean hold;
 
         Session(BlockPos stand) {
             this.stand = stand;

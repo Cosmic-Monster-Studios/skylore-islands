@@ -17,20 +17,24 @@ public final class CutscenePayloads {
     public static final int OFFER = 0;
     public static final int BEGIN = 1;
 
-    /** READY: origin picked, start. SNAP: the sky change. END: impact reached or skipped. */
+    /** READY: origin picked, start. SNAP: the sky change. IMPACT: the ship hits. END: done or skipped. */
     public static final int READY = 0;
     public static final int SNAP = 1;
     public static final int END = 2;
+    public static final int IMPACT = 3;
 
     private CutscenePayloads() {}
 
-    public record ToClient(int kind, BlockPos stand, String species, boolean skippable) implements CustomPacketPayload {
+    /** {@code start} is where the timeline begins, in seconds, and {@code hold} freezes it there; only the test command sets them. */
+    public record ToClient(int kind, BlockPos stand, String species, boolean skippable, float start, boolean hold) implements CustomPacketPayload {
         public static final Type<ToClient> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(SkyloreIslands.MOD_ID, "cutscene_to_client"));
         public static final StreamCodec<ByteBuf, ToClient> CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_INT, ToClient::kind,
                 BlockPos.STREAM_CODEC, ToClient::stand,
                 ByteBufCodecs.STRING_UTF8, ToClient::species,
                 ByteBufCodecs.BOOL, ToClient::skippable,
+                ByteBufCodecs.FLOAT, ToClient::start,
+                ByteBufCodecs.BOOL, ToClient::hold,
                 ToClient::new);
 
         @Override

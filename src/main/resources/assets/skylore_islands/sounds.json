@@ -1,0 +1,210 @@
+{
+  "voice.a": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/a",
+        "stream": false
+      }
+    ]
+  },
+  "voice.b": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/b",
+        "stream": false
+      }
+    ]
+  },
+  "voice.c": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/c",
+        "stream": false
+      }
+    ]
+  },
+  "voice.d": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/d",
+        "stream": false
+      }
+    ]
+  },
+  "voice.e": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/e",
+        "stream": false
+      }
+    ]
+  },
+  "voice.f": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/f",
+        "stream": false
+      }
+    ]
+  },
+  "voice.g": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/g",
+        "stream": false
+      }
+    ]
+  },
+  "voice.h": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/h",
+        "stream": false
+      }
+    ]
+  },
+  "voice.i": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/i",
+        "stream": false
+      }
+    ]
+  },
+  "voice.j": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/j",
+        "stream": false
+      }
+    ]
+  },
+  "voice.k": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/k",
+        "stream": false
+      }
+    ]
+  },
+  "voice.l": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/l",
+        "stream": false
+      }
+    ]
+  },
+  "voice.m": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/m",
+        "stream": false
+      }
+    ]
+  },
+  "voice.n": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/n",
+        "stream": false
+      }
+    ]
+  },
+  "voice.o": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/o",
+        "stream": false
+      }
+    ]
+  },
+  "voice.p": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/p",
+        "stream": false
+      }
+    ]
+  },
+  "voice.q": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/q",
+        "stream": false
+      }
+    ]
+  },
+  "voice.r": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/r",
+        "stream": false
+      }
+    ]
+  },
+  "voice.s": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/s",
+        "stream": false
+      }
+    ]
+  },
+  "voice.t": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/t",
+        "stream": false
+      }
+    ]
+  },
+  "voice.u": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/u",
+        "stream": false
+      }
+    ]
+  },
+  "voice.v": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/v",
+        "stream": false
+      }
+    ]
+  },
+  "voice.w": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/w",
+        "stream": false
+      }
+    ]
+  },
+  "voice.x": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/x",
+        "stream": false
+      }
+    ]
+  },
+  "voice.y": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/y",
+        "stream": false
+      }
+    ]
+  },
+  "voice.z": {
+    "sounds": [
+      {
+        "name": "skylore_islands:voice/z",
+        "stream": false
+      }
+    ]
+  }
+}

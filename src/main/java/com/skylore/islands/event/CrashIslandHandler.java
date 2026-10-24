@@ -83,6 +83,8 @@ public class CrashIslandHandler {
         boolean fresh = false;
         IslandCell builtCell = null;
         if (assigned != null && data.isBuilt(assigned[0], assigned[1])) {
+            // A crash whose cutscene never got to the impact (the game stopped mid-scene): blast it now.
+            blastPending(level, data, assigned[0], assigned[1]);
             BlockPos site = data.site(assigned[0], assigned[1]);
             stand = site != null
                     ? CrashSiteBuilder.standAt(level, site)
@@ -91,13 +93,20 @@ public class CrashIslandHandler {
             if (assigned != null) {
                 data.release(player.getUUID());
             }
-            CrashSite crash = allocateAndBuild(level, data);
+            // With the arrival cutscene the crater can't be there before the ship hits: only pick the
+            // spot now and blast it on impact.
+            boolean deferred = ArrivalCutscene.eligible(player);
+            CrashSite crash = allocateAndBuild(level, data, deferred);
             if (crash == null) {
                 player.sendSystemMessage(Component.literal("No forested island left to crash on."));
                 return;
             }
             data.assign(player.getUUID(), crash.cellX, crash.cellZ);
-            data.markBuilt(crash.cellX, crash.cellZ, crash.stand);
+            if (deferred) {
+                data.markPending(crash.cellX, crash.cellZ, crash.stand);
+            } else {
+                data.markBuilt(crash.cellX, crash.cellZ, crash.stand);
+            }
             stand = CrashSiteBuilder.standAt(level, crash.stand);
             announce = true;
             fresh = true;
@@ -123,23 +132,56 @@ public class CrashIslandHandler {
         }
     }
 
-    /** Lands a player on their already-built crash site with the fresh-arrival wake-up, after the cutscene. */
+    /** The moment the cutscene's ship hits: blast the player's crater if it isn't there yet. */
+    public static void impact(ServerPlayer player) {
+        ServerLevel level = overworld(player);
+        CrashIslandSavedData data = CrashIslandSavedData.get(level);
+        int[] assigned = data.assignedCell(player.getUUID());
+        if (assigned != null) {
+            blastPending(level, data, assigned[0], assigned[1]);
+        }
+    }
+
+    private static void blastPending(ServerLevel level, CrashIslandSavedData data, int cellX, int cellZ) {
+        if (!data.isPending(cellX, cellZ)) {
+            return;
+        }
+        BlockPos site = data.site(cellX, cellZ);
+        BlockPos stand = CrashSiteBuilder.buildAt(level, site, siteSeed(cellX, cellZ));
+        data.markBlasted(cellX, cellZ, stand);
+    }
+
+    private static long siteSeed(int cellX, int cellZ) {
+        return CellularIslandDensityFunction.worldSeed() ^ (CrashIslandSavedData.pack(cellX, cellZ) * 0x9E3779B97F4A7C15L);
+    }
+
+    /** Lands a player on their crash site with the fresh-arrival wake-up, after the cutscene. */
     public static void arrive(ServerPlayer player) {
         ServerLevel level = overworld(player);
         CrashIslandSavedData data = CrashIslandSavedData.get(level);
         int[] assigned = data.assignedCell(player.getUUID());
+        if (assigned == null) {
+            return;
+        }
+        // Skipped (or left) before the impact: the crater goes in now.
+        blastPending(level, data, assigned[0], assigned[1]);
         BlockPos site = data.standOf(player.getUUID());
-        if (assigned == null || site == null) {
+        if (site == null) {
             return;
         }
         Vec3 stand = CrashSiteBuilder.standAt(level, site);
         player.teleportTo(level, stand.x, stand.y, stand.z, player.getYRot(), 0.0F);
+        // The stand moved down into the crater since the spot was picked.
+        player.setRespawnPosition(Level.OVERWORLD, BlockPos.containing(stand), player.getYRot(), true, false);
         CrashArrival.wakeUp(player);
         NeoForge.EVENT_BUS.post(new CrashSiteBuiltEvent(player, new IslandCell(assigned[0], assigned[1]), BlockPos.containing(stand)));
     }
 
-    /** Walks the cell spiral for an unclaimed forested island and blasts a crash site into it. */
-    private static CrashSite allocateAndBuild(ServerLevel level, CrashIslandSavedData data) {
+    /**
+     * Walks the cell spiral for an unclaimed forested island and blasts a crash site into it; when
+     * {@code deferred}, only picks the spot (the stand is then the surface at the crater's centre).
+     */
+    private static CrashSite allocateAndBuild(ServerLevel level, CrashIslandSavedData data, boolean deferred) {
         boolean skipOrigin = SkyloreConfig.crashIslandSkipOriginCell();
         int cellSize = SkyloreConfig.cellSize();
         int minAlt = SkyloreConfig.minIslandAltitude();
@@ -159,12 +201,14 @@ public class CrashIslandHandler {
             if (layout == null || IslandLayout.isBowlArchetype(layout.archetype) || layout.baseRadius < SkyloreConfig.crashMinIslandRadius()) {
                 continue;
             }
-            long seed = CellularIslandDensityFunction.worldSeed() ^ (CrashIslandSavedData.pack(cellX, cellZ) * 0x9E3779B97F4A7C15L);
+            long seed = siteSeed(cellX, cellZ);
             for (int[] site : CrashSiteBuilder.candidateSites(level, layout, seed)) {
                 if (builds++ >= MAX_BUILD_ATTEMPTS) {
                     break;
                 }
-                BlockPos stand = CrashSiteBuilder.tryBuild(level, site[0], site[1], seed);
+                BlockPos stand = deferred
+                        ? CrashSiteBuilder.findSite(level, site[0], site[1])
+                        : CrashSiteBuilder.tryBuild(level, site[0], site[1], seed);
                 if (stand != null) {
                     return new CrashSite(cellX, cellZ, stand);
                 }

@@ -2,6 +2,7 @@ package com.skylore.islands.client.cutscene;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import com.skylore.islands.SkyloreIslands;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.PlayerModel;
@@ -18,7 +19,11 @@ import net.minecraft.world.phys.Vec3;
 import java.util.List;
 import java.util.Map;
 
-/** The six (or seven) crew members in their seats, drawn straight from a player model. */
+/**
+ * The six (or seven) crew members in their chairs. Drawn straight from a player model rather than
+ * through the player renderer, so mods that restyle players (limb replacements, extra animations)
+ * can't bend them out of their poses.
+ */
 public final class Crew {
     /** Name colour, skin tint, model scale. A species' own skin overrides the placeholder vanilla one. */
     public record Species(String id, int color, int tint, float scale, String placeholderSkin) {
@@ -48,9 +53,9 @@ public final class Crew {
         return ORDER.stream().filter(s -> !s.equals(playerSpecies)).toList();
     }
 
-    /** Where a crew member's seat is: seat index 1.. maps to the ship's crew seats. */
-    public static float seatAngle(int crewIndex) {
-        return ShipModel.SEAT_ANGLES[crewIndex + 1];
+    /** A crew member's chair: crew index 0.. maps to the ship's seats after the player's. */
+    public static ShipModel.Seat seat(int crewIndex) {
+        return ShipModel.SEATS.get(crewIndex + 1);
     }
 
     /** Ship-local position of a crew member's eyes, so others can look at the speaker. */
@@ -59,57 +64,79 @@ public final class Crew {
         if (i < 0) {
             return ShipModel.PLAYER_EYE;
         }
-        Vec3 seat = ShipModel.seat(seatAngle(i));
-        return seat.add(0.0, 0.9 * SPECIES.get(species).scale(), 0.0);
+        return hips(i).add(0.0, 0.95 * SPECIES.get(species).scale(), 0.0);
+    }
+
+    /** A sitter's hips: a little forward of the chair's middle so the torso clears the backrest. */
+    private static Vec3 hips(int crewIndex) {
+        ShipModel.Seat chair = seat(crewIndex);
+        float a = chair.yaw() * Mth.DEG_TO_RAD;
+        return chair.hips().add(Mth.sin(a) * 0.15, 0.0, Mth.cos(a) * 0.15);
     }
 
     /**
-     * @param speaker   who is talking now ("" for nobody), the others turn to them
-     * @param brace     0..1, crew curl up with their arms over their heads
-     * @param shake     0..1, jolts everyone around
+     * @param pose       already moved to the ship centre and turned to its heading
+     * @param speaker    who is talking now ("" for nobody), the others turn to them
+     * @param brace      0..1, crew duck and cover their heads
+     * @param shake      0..1, jolts everyone around
+     * @param brightness 0..1 for the flickering lights
+     * @param lurch      how hard a knock throws them forward (negative: pulled back)
+     * @param grip       0..1, hands off their laps and clamped on the armrests
      */
     public void render(PoseStack pose, MultiBufferSource buffers, List<String> aboard, String speaker,
-                       float brace, float shake, float time, float brightness) {
+                       float brace, float shake, float time, float brightness, float lurch, float grip) {
         if (model == null) {
             model = new PlayerModel<>(Minecraft.getInstance().getEntityModels().bakeLayer(ModelLayers.PLAYER), false);
+            // Entity models start out as babies (big head, tiny body); these are grown-ups.
+            model.young = false;
         }
-        int light = LightTexture.FULL_BRIGHT;
         for (int i = 0; i < aboard.size(); i++) {
             Species species = SPECIES.get(aboard.get(i));
-            float angle = seatAngle(i);
-            Vec3 seat = ShipModel.seat(angle);
+            float angle = seat(i).yaw();
+            Vec3 hips = hips(i);
             float scale = species.scale();
             boolean talking = species.id().equals(speaker);
 
             pose.pushPose();
-            float jolt = shake * (float) Math.sin(time * 37.0F + i * 2.1F) * 0.06F;
-            pose.translate(seat.x + jolt, seat.y - 0.75 * scale + Math.abs(jolt), seat.z);
-            pose.mulPose(com.mojang.math.Axis.YP.rotationDegrees(180.0F + angle));
+            float jolt = shake * Mth.sin(time * 37.0F + i * 2.1F) * 0.06F;
+            // The model's hips sit 12 px (0.75) above its feet.
+            pose.translate(hips.x + jolt, hips.y - 0.75 * scale + Math.abs(jolt), hips.z);
+            // Same turn as the entity renderer: facing (sin a, cos a) is a Minecraft yaw of -a.
+            pose.mulPose(Axis.YP.rotationDegrees(180.0F + angle));
+            // Thrown forward against the knock (each a beat apart so they don't move as one).
+            pose.mulPose(Axis.XP.rotationDegrees(-lurch * (9.0F + i % 3 * 2.0F)));
             pose.scale(-scale, -scale, scale);
             pose.translate(0.0F, -1.501F, 0.0F);
 
-            sit(model);
-            // Turn the head toward whoever is talking.
+            sit(model, time + i * 1.7F);
+            if (grip > 0.0F) {
+                // Arms down at their sides, hands on the armrests.
+                model.rightArm.xRot = Mth.lerp(grip, model.rightArm.xRot, -0.3F);
+                model.leftArm.xRot = Mth.lerp(grip, model.leftArm.xRot, -0.3F);
+                model.rightArm.zRot = Mth.lerp(grip, model.rightArm.zRot, 0.35F);
+                model.leftArm.zRot = Mth.lerp(grip, model.leftArm.zRot, -0.35F);
+            }
             Vec3 target = speaker.isEmpty() ? null : eye(aboard, speaker);
             if (target != null && !talking) {
-                Vec3 me = seat.add(0.0, 0.9 * scale, 0.0);
-                Vec3 d = target.subtract(me);
-                float worldYaw = (float) Math.toDegrees(Math.atan2(d.x, d.z));
-                model.head.yRot = Mth.clamp(Mth.wrapDegrees(worldYaw - angle), -70.0F, 70.0F) * Mth.DEG_TO_RAD * -1.0F;
+                // Turn to whoever is talking, as far as a neck goes.
+                Vec3 d = target.subtract(hips.add(0.0, 0.95 * scale, 0.0));
+                float look = (float) Math.toDegrees(Math.atan2(d.x, d.z));
+                model.head.yRot = -Mth.clamp(Mth.wrapDegrees(look - angle), -70.0F, 70.0F) * Mth.DEG_TO_RAD;
                 model.head.xRot = (float) -Math.atan2(d.y, Math.sqrt(d.x * d.x + d.z * d.z));
             }
             if (talking) {
-                model.head.xRot = (float) Math.sin(time * 9.0F) * 0.08F;
-                model.rightArm.xRot = -0.9F + (float) Math.sin(time * 5.0F) * 0.25F;
-                model.rightArm.zRot = -0.2F;
+                model.head.xRot = Mth.sin(time * 9.0F) * 0.08F;
+                model.rightArm.xRot = -1.1F + Mth.sin(time * 5.0F) * 0.25F;
+                model.rightArm.zRot = 0.15F;
             }
             if (brace > 0.0F) {
-                model.head.xRot = Mth.lerp(brace, model.head.xRot, 0.6F);
+                // Head down, forearms over it.
+                model.head.xRot = Mth.lerp(brace, model.head.xRot, 0.7F);
                 model.head.yRot = Mth.lerp(brace, model.head.yRot, 0.0F);
-                model.rightArm.xRot = Mth.lerp(brace, model.rightArm.xRot, -2.6F);
-                model.leftArm.xRot = Mth.lerp(brace, model.leftArm.xRot, -2.6F);
-                model.rightArm.zRot = Mth.lerp(brace, model.rightArm.zRot, 0.5F);
-                model.leftArm.zRot = Mth.lerp(brace, model.leftArm.zRot, -0.5F);
+                model.rightArm.xRot = Mth.lerp(brace, model.rightArm.xRot, -2.7F);
+                model.leftArm.xRot = Mth.lerp(brace, model.leftArm.xRot, -2.7F);
+                model.rightArm.zRot = Mth.lerp(brace, model.rightArm.zRot, 0.45F);
+                model.leftArm.zRot = Mth.lerp(brace, model.leftArm.zRot, -0.45F);
             }
             copyLayers(model);
 
@@ -117,29 +144,29 @@ public final class Crew {
             int r = (int) (((c >> 16) & 0xFF) * brightness);
             int g = (int) (((c >> 8) & 0xFF) * brightness);
             int b = (int) ((c & 0xFF) * brightness);
-            int color = 0xFF000000 | r << 16 | g << 8 | b;
             VertexConsumer consumer = buffers.getBuffer(RenderType.entityCutoutNoCull(species.skin()));
-            model.renderToBuffer(pose, consumer, light, OverlayTexture.NO_OVERLAY, color);
+            model.renderToBuffer(pose, consumer, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 0xFF000000 | r << 16 | g << 8 | b);
             pose.popPose();
         }
     }
 
-    private static void sit(PlayerModel<LivingEntity> model) {
+    /** Seated: thighs forward, hands resting in the lap, breathing a little. */
+    private static void sit(PlayerModel<LivingEntity> model, float time) {
         model.head.xRot = 0.0F;
         model.head.yRot = 0.0F;
-        model.body.xRot = 0.0F;
-        model.rightArm.xRot = -0.62831855F;
-        model.rightArm.yRot = 0.0F;
-        model.rightArm.zRot = 0.0F;
-        model.leftArm.xRot = -0.62831855F;
-        model.leftArm.yRot = 0.0F;
-        model.leftArm.zRot = 0.0F;
+        float breath = Mth.sin(time * 1.6F) * 0.03F;
+        model.rightArm.xRot = -0.75F + breath;
+        model.rightArm.yRot = -0.1F;
+        model.rightArm.zRot = 0.05F;
+        model.leftArm.xRot = -0.75F + breath;
+        model.leftArm.yRot = 0.1F;
+        model.leftArm.zRot = -0.05F;
         model.rightLeg.xRot = -1.4137167F;
-        model.rightLeg.yRot = 0.31415927F;
-        model.rightLeg.zRot = 0.07853982F;
+        model.rightLeg.yRot = 0.15F;
+        model.rightLeg.zRot = 0.05F;
         model.leftLeg.xRot = -1.4137167F;
-        model.leftLeg.yRot = -0.31415927F;
-        model.leftLeg.zRot = -0.07853982F;
+        model.leftLeg.yRot = -0.15F;
+        model.leftLeg.zRot = -0.05F;
     }
 
     private static void copyLayers(PlayerModel<LivingEntity> model) {

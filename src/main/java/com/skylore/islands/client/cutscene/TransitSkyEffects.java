@@ -69,8 +69,8 @@ public final class TransitSkyEffects extends DimensionSpecialEffects.EndEffects 
         RenderSystem.defaultBlendFunc();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // Flying along +Z: the star sphere turns over the ship, faster or slower with the ship's speed.
-        Matrix4f starPose = new Matrix4f(modelViewMatrix).rotateX(CutscenePlayer.starTravel(partialTick) * Mth.DEG_TO_RAD);
+        // Stars are too far away to move with the ship's speed; they only creep. Speed shows in the dust.
+        Matrix4f starPose = new Matrix4f(modelViewMatrix).rotateX(CutscenePlayer.starTravel(partialTick) * 0.02F * Mth.DEG_TO_RAD);
         BufferBuilder builder = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
         Vector3f dir = new Vector3f();
         Vector3f side = new Vector3f();
@@ -90,7 +90,7 @@ public final class TransitSkyEffects extends DimensionSpecialEffects.EndEffects 
 
         // A far blue-violet planet low off the port bow, drifting with the stars.
         Matrix4f planetPose = new Matrix4f(modelViewMatrix)
-                .rotateX(CutscenePlayer.starTravel(partialTick) * 0.15F * Mth.DEG_TO_RAD)
+                .rotateX(CutscenePlayer.starTravel(partialTick) * 0.004F * Mth.DEG_TO_RAD)
                 .rotateY(-50.0F * Mth.DEG_TO_RAD).rotateX(-14.0F * Mth.DEG_TO_RAD);
         BufferBuilder planet = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLE_FAN, DefaultVertexFormat.POSITION_COLOR);
         float r = 14.0F;

@@ -26,6 +26,7 @@ public final class SkyloreIslandsClient {
         NeoForge.EVENT_BUS.addListener(CutscenePlayer::onRenderHand);
         NeoForge.EVENT_BUS.addListener(CutscenePlayer::onHighlight);
         NeoForge.EVENT_BUS.addListener(CutscenePlayer::onScreenOpening);
+        NeoForge.EVENT_BUS.addListener(CutscenePlayer::onPlaySound);
         NeoForge.EVENT_BUS.addListener(CutscenePlayer::onFog);
         NeoForge.EVENT_BUS.addListener(CutscenePlayer::onFogColor);
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> CutscenePlayer.onLoggedOut());

@@ -26,6 +26,8 @@ public class CrashIslandSavedData extends SavedData {
     private final Set<Long> builtCells = new HashSet<>();
     private final Map<Long, BlockPos> sites = new HashMap<>();
     private final Set<UUID> sawCutscene = new HashSet<>();
+    /** Sites chosen for a crash that hasn't happened yet: the arrival cutscene blasts the crater on impact. */
+    private final Set<Long> unbuilt = new HashSet<>();
 
     public static CrashIslandSavedData get(ServerLevel overworld) {
         return overworld.getDataStorage().computeIfAbsent(
@@ -58,6 +60,9 @@ public class CrashIslandSavedData extends SavedData {
             if (row.contains("siteY")) {
                 data.sites.put(key, new BlockPos(row.getInt("siteX"), row.getInt("siteY"), row.getInt("siteZ")));
             }
+        }
+        for (long key : tag.getLongArray("unbuilt")) {
+            data.unbuilt.add(key);
         }
         ListTag saw = tag.getList("sawCutscene", Tag.TAG_INT_ARRAY);
         for (Tag uuid : saw) {
@@ -102,6 +107,7 @@ public class CrashIslandSavedData extends SavedData {
             saw.add(NbtUtils.createUUID(uuid));
         }
         tag.put("sawCutscene", saw);
+        tag.putLongArray("unbuilt", unbuilt.stream().mapToLong(Long::longValue).toArray());
         return tag;
     }
 
@@ -153,6 +159,23 @@ public class CrashIslandSavedData extends SavedData {
     /** Stand position of a crash site, or null for legacy void-island leases. */
     public BlockPos site(int cellX, int cellZ) {
         return sites.get(pack(cellX, cellZ));
+    }
+
+    /** Claims a site whose crater is blasted later (see {@link #unbuilt}); the lease counts as built. */
+    public void markPending(int cellX, int cellZ, BlockPos site) {
+        markBuilt(cellX, cellZ, site);
+        unbuilt.add(pack(cellX, cellZ));
+        setDirty();
+    }
+
+    public boolean isPending(int cellX, int cellZ) {
+        return unbuilt.contains(pack(cellX, cellZ));
+    }
+
+    /** The crater is in: store where the player stands in it. */
+    public void markBlasted(int cellX, int cellZ, BlockPos stand) {
+        unbuilt.remove(pack(cellX, cellZ));
+        markBuilt(cellX, cellZ, stand);
     }
 
     public boolean sawCutscene(UUID uuid) {
