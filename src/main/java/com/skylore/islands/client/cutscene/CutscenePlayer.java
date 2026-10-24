@@ -139,7 +139,31 @@ public final class CutscenePlayer {
     private record Line(float t, String speaker, String key) {}
 
     /** One piece of the ship flying out of the explosion. */
-    private record Debris(BlockState state, Vec3 from, Vec3 velocity, Vec3 axis, float spin, boolean smokes) {}
+    /** One piece of the ship flying out of the explosion, falling until it hits real ground. */
+    private static final class Debris {
+        final BlockState state;
+        final Vec3 from;
+        final Vec3 velocity;
+        final Vec3 axis;
+        final float spin;
+        final boolean smokes;
+        /** How far along its flight it has been checked for touching the ground. */
+        double checkedAge;
+        /** Where it came to rest and when, or null while still flying. */
+        Vec3 landedAt;
+        double landedAge = -1.0;
+        /** Went off the island's edge and fell out of the scene. */
+        boolean gone;
+
+        Debris(BlockState state, Vec3 from, Vec3 velocity, Vec3 axis, float spin, boolean smokes) {
+            this.state = state;
+            this.from = from;
+            this.velocity = velocity;
+            this.axis = axis;
+            this.spin = spin;
+            this.smokes = smokes;
+        }
+    }
 
     private CutscenePlayer() {}
 
@@ -727,8 +751,9 @@ public final class CutscenePlayer {
         if (t >= IMPACT_AT && t < IMPACT_AT + 4.0F) {
             int heard = 0;
             for (int i = 0; i < debris.size() && heard < 2; i += 9) {
-                double land = landingAge(debris.get(i));
-                if (crossed(before - IMPACT_AT, t - IMPACT_AT, (float) land)) {
+                Debris piece = debris.get(i);
+                debrisAt(piece, t - IMPACT_AT);
+                if (piece.landedAge >= 0.0 && crossed(before - IMPACT_AT, t - IMPACT_AT, (float) piece.landedAge)) {
                     ui(i % 2 == 0 ? SoundEvents.IRON_TRAPDOOR_CLOSE : SoundEvents.STONE_FALL,
                             0.6F + random.nextFloat() * 0.3F, 0.35F);
                     heard++;
@@ -948,8 +973,8 @@ public final class CutscenePlayer {
         if (t >= IMPACT_AT && t < IMPACT_AT + 3.0F) {
             // Burning pieces trail smoke as they fly.
             for (Debris piece : debris) {
-                if (piece.smokes && t - IMPACT_AT < landingAge(piece)) {
-                    Vec3 at = debrisAt(piece, t - IMPACT_AT);
+                Vec3 at = debrisAt(piece, t - IMPACT_AT);
+                if (piece.smokes && piece.landedAt == null && !piece.gone) {
                     mc.level.addParticle(ParticleTypes.LARGE_SMOKE, at.x, at.y, at.z, 0, 0.02, 0);
                     mc.level.addParticle(ParticleTypes.FLAME, at.x, at.y, at.z, 0, 0, 0);
                 }
@@ -958,8 +983,8 @@ public final class CutscenePlayer {
         if (t >= IMPACT_AT && t < END_AT) {
             // Burning pieces keep smouldering where they came down.
             for (Debris piece : debris) {
-                if (piece.smokes && t - IMPACT_AT >= landingAge(piece) && random.nextInt(4) == 0) {
-                    Vec3 at = debrisAt(piece, t - IMPACT_AT);
+                if (piece.smokes && piece.landedAt != null && random.nextInt(4) == 0) {
+                    Vec3 at = piece.landedAt;
                     mc.level.addParticle(ParticleTypes.SMOKE, at.x, at.y + 0.4, at.z, 0, 0.04, 0);
                     if (random.nextInt(3) == 0) {
                         mc.level.addParticle(ParticleTypes.FLAME, at.x, at.y + 0.3, at.z, 0, 0.01, 0);
@@ -1023,37 +1048,43 @@ public final class CutscenePlayer {
         }
     }
 
-    /** Crater radius and depth to land debris on; the server blasts the real crater on impact. */
-    private static final double CRATER_RADIUS = 12.0;
-    private static final double CRATER_DEPTH = 6.0;
-
-    /** Ground height under a point: the island surface, dipping into the crater's bowl near the middle. */
-    private static double groundAt(double x, double z) {
-        Vec3 c = approachEnd();
-        double surface = c.y - 3.0;
-        double d = Math.sqrt((x - c.x) * (x - c.x) + (z - c.z) * (z - c.z)) / CRATER_RADIUS;
-        return d >= 1.0 ? surface : surface - CRATER_DEPTH * (1.0 - d * d);
+    /** Where a piece would be {@code age} seconds after the blast if nothing stopped it. */
+    private static Vec3 flight(Debris piece, double age) {
+        return new Vec3(piece.from.x + piece.velocity.x * age,
+                piece.from.y + piece.velocity.y * age - 0.5 * GRAVITY * age * age,
+                piece.from.z + piece.velocity.z * age);
     }
 
-    /** Where a piece is {@code age} seconds after the blast: thrown, falling, then lying where it landed. */
+    /**
+     * Where a piece is {@code age} seconds after the blast: flying, then resting wherever it first came
+     * down on something solid in the world (the fresh crater, a slope, a tree), never mid-air.
+     */
     private static Vec3 debrisAt(Debris piece, float age) {
-        double land = landingAge(piece);
-        double ground = groundAt(piece.from.x + piece.velocity.x * land, piece.from.z + piece.velocity.z * land);
-        double a = Math.min(age, land);
-        double y = piece.from.y + piece.velocity.y * a - 0.5 * GRAVITY * a * a;
-        return new Vec3(piece.from.x + piece.velocity.x * a, Math.max(y, ground), piece.from.z + piece.velocity.z * a);
-    }
-
-    private static double landingAge(Debris piece) {
-        // Fall to the surface first, then once more to the ground where that lands (in or out of the crater).
-        double a = fallTime(piece, approachEnd().y - 3.0);
-        return fallTime(piece, groundAt(piece.from.x + piece.velocity.x * a, piece.from.z + piece.velocity.z * a));
-    }
-
-    private static double fallTime(Debris piece, double ground) {
-        double vy = piece.velocity.y;
-        double drop = piece.from.y - ground;
-        return (vy + Math.sqrt(Math.max(0.0, vy * vy + 2.0 * GRAVITY * drop))) / GRAVITY;
+        Minecraft mc = Minecraft.getInstance();
+        if (piece.landedAt == null && !piece.gone && mc.level != null) {
+            // Step through the flight in small slices so fast pieces can't skip through the ground.
+            double a = piece.checkedAge;
+            for (; a < age; a += 0.02) {
+                Vec3 pos = flight(piece, a);
+                if (pos.y < approachEnd().y - 70.0) {
+                    piece.gone = true;
+                    break;
+                }
+                boolean falling = piece.velocity.y - GRAVITY * a < 0.0;
+                BlockPos under = BlockPos.containing(pos.x, pos.y - 0.5, pos.z);
+                BlockState below = mc.level.getBlockState(under);
+                if (falling && a > 0.1) {
+                    var shape = below.getCollisionShape(mc.level, under);
+                    if (!shape.isEmpty()) {
+                        piece.landedAt = new Vec3(pos.x, under.getY() + shape.max(net.minecraft.core.Direction.Axis.Y) + 0.5, pos.z);
+                        piece.landedAge = a;
+                        break;
+                    }
+                }
+            }
+            piece.checkedAge = a;
+        }
+        return piece.landedAt != null ? piece.landedAt : flight(piece, age);
     }
 
     private static void renderDebris(float t, Vec3 cam, MultiBufferSource.BufferSource buffers) {
@@ -1064,7 +1095,10 @@ public final class CutscenePlayer {
         float age = t - IMPACT_AT;
         for (Debris piece : debris) {
             Vec3 at = debrisAt(piece, age);
-            float tumble = (float) Math.min(age, landingAge(piece)) * piece.spin;
+            if (piece.gone) {
+                continue;
+            }
+            float tumble = (float) (piece.landedAge >= 0.0 ? piece.landedAge : age) * piece.spin;
             PoseStack pose = new PoseStack();
             pose.translate(at.x - cam.x, at.y - cam.y, at.z - cam.z);
             pose.mulPose(Axis.of(piece.axis.toVector3f()).rotationDegrees(tumble));
