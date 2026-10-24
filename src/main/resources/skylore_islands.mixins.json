@@ -31,7 +31,9 @@
     "LevelChunkMixin",
     "ChunkAccessMixin",
     "StructureStartMixin",
-    "ProtoChunkMixin"
+    "ProtoChunkMixin",
+    "RandomSpreadStructurePlacementMixin",
+    "StructureCheckMixin"
   ],
   "client": [],
   "injectors": {

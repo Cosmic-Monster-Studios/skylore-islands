@@ -21,6 +21,9 @@ public class SkyloreConfig {
         public final ModConfigSpec.IntValue skyCacheChance;
         public final ModConfigSpec.BooleanValue skyCacheInNether;
 
+        public final ModConfigSpec.BooleanValue relocateStructures;
+        public final ModConfigSpec.IntValue mushroomIslandChance;
+
         public final ModConfigSpec.BooleanValue voidFallProtection;
         public final ModConfigSpec.IntValue voidFallRescueY;
 
@@ -80,6 +83,15 @@ public class SkyloreConfig {
                     .define("skyCacheInNether", false);
             builder.pop();
 
+            builder.push("worldgen");
+            relocateStructures = builder
+                    .comment("Move structure spawn attempts that land in open void onto the nearest island in the same placement region. Without it most structures are about 10x rarer than vanilla. Applies to newly generated chunks.")
+                    .define("relocateStructures", true);
+            mushroomIslandChance = builder
+                    .comment("One in this many regular Overworld islands gets mushroom fields climate. 0 disables mushroom islands. Applies to newly generated chunks.")
+                    .defineInRange("mushroomIslandChance", DEFAULT_MUSHROOM_ISLAND_CHANCE, 0, 100000);
+            builder.pop();
+
             builder.push("gameplay");
             voidFallProtection = builder
                     .comment("Whether falling into the void below islands automatically rescues the player. Off by default; packs turn it on.")
@@ -106,6 +118,7 @@ public class SkyloreConfig {
     public static final int DEFAULT_CRASH_MIN_TREE_LOGS = 12;
     public static final int DEFAULT_CRASH_MIN_ISLAND_RADIUS = 40;
     public static final int DEFAULT_SKY_CACHE_CHANCE = 40;
+    public static final int DEFAULT_MUSHROOM_ISLAND_CHANCE = 60;
 
     static {
         final Pair<Server, ModConfigSpec> specPair = new ModConfigSpec.Builder().configure(Server::new);
@@ -187,6 +200,14 @@ public class SkyloreConfig {
 
     public static boolean skyCacheInNether() {
         return loaded() && SERVER.skyCacheInNether.get();
+    }
+
+    public static boolean relocateStructures() {
+        return !loaded() || SERVER.relocateStructures.get();
+    }
+
+    public static int mushroomIslandChance() {
+        return loaded() ? SERVER.mushroomIslandChance.get() : DEFAULT_MUSHROOM_ISLAND_CHANCE;
     }
 
     public static boolean voidFallProtection() {
