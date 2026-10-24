@@ -206,5 +206,22 @@
         "stream": false
       }
     ]
+  },
+  "music.arrival_a": {
+    "sounds": [
+      {
+        "name": "skylore_islands:music/arrival_a",
+        "stream": true
+      }
+    ]
+  },
+  "music.arrival_b": {
+    "sounds": [
+      {
+        "name": "skylore_islands:music/arrival_b",
+        "stream": false,
+        "preload": true
+      }
+    ]
   }
 }

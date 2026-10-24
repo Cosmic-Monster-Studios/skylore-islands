@@ -135,6 +135,22 @@ public final class CutscenePlayer {
     private static final Crew crew = new Crew();
     private static final RandomSource random = RandomSource.create();
     private static final List<LoopSound> loops = new ArrayList<>();
+    /**
+     * The score, in two parts split at the snap: A runs from the first frame (and waits out the
+     * transit hold in its own closing silence), B starts on the actual cut to blue sky. The music is
+     * timed against the timeline constants above, so changing any of them means re-timing the score.
+     */
+    private static final ResourceLocation MUSIC_A = ResourceLocation.fromNamespaceAndPath(SkyloreIslands.MOD_ID, "music.arrival_a");
+    private static final ResourceLocation MUSIC_B = ResourceLocation.fromNamespaceAndPath(SkyloreIslands.MOD_ID, "music.arrival_b");
+    private static SoundInstance musicA;
+    /**
+     * Part A streams from disk and takes this long to start sounding (measured in the dev client),
+     * where part B is preloaded and starts at once; the picture clock starts this much later to match.
+     */
+    private static final double MUSIC_A_LEAD = 0.14;
+    private static SoundInstance musicB;
+    /** Whether part B has been cued (once per run, at the cut to sky). */
+    private static boolean snapCut;
 
     private record Line(float t, String speaker, String key) {}
 
@@ -199,6 +215,8 @@ public final class CutscenePlayer {
             starTravel = starTravelOld = 0.0F;
             begun = true;
             facedCourse = false;
+            snapCut = false;
+            stopMusic();
             stage = Stage.ENTERING;
         }
     }
@@ -542,6 +560,10 @@ public final class CutscenePlayer {
                     player.xRotO = 8.0F;
                     stage = Stage.PLAYING;
                     startLoops();
+                    if (clock < 0.25) {
+                        musicA = playMusic(MUSIC_A);
+                        clock -= MUSIC_A_LEAD;
+                    }
                 }
             }
             case PLAYING -> tickPlaying(mc, player);
@@ -564,7 +586,9 @@ public final class CutscenePlayer {
         long now = Util.getNanos();
         double elapsed = lastNanos == 0L ? 0.05 : (now - lastNanos) / 1.0e9;
         lastNanos = now;
-        if (mc.isPaused() || mc.screen != null && !(mc.screen instanceof ReceivingLevelScreen)) {
+        // Only a pause stops the clock: it is also the only thing that pauses the music, so any other
+        // screen (chat, say) must not let the picture fall behind the score.
+        if (mc.isPaused()) {
             return;
         }
         float before = (float) clock;
@@ -576,8 +600,18 @@ public final class CutscenePlayer {
             }
             return;
         }
+        if (!snapCut && before >= SNAP_AT - 0.05F && before < SNAP_AT + 0.5F && !inTransit()) {
+            // The island level is in: this tick is the cut to sky. Pin the clock to the snap exactly and
+            // start part B with it, so the impact lands on the score's hit 8 seconds later.
+            snapCut = true;
+            clock = SNAP_AT;
+            before = SNAP_AT - 0.001F;
+            elapsed = 0.0;
+            musicB = playMusic(MUSIC_B);
+        }
         if (!frozen) {
-            clock = Math.min(clock + Math.min(elapsed, 1.0), before < SNAP_AT && inTransit() ? SNAP_AT - 0.05 : Double.MAX_VALUE);
+            // Uncapped: the music keeps playing through a hitch, so the picture has to catch up with it.
+            clock = Math.min(clock + elapsed, before < SNAP_AT && inTransit() ? SNAP_AT - 0.05 : Double.MAX_VALUE);
         }
         ticks++;
         float t = (float) clock;
@@ -623,6 +657,7 @@ public final class CutscenePlayer {
         endSent = true;
         PacketDistributor.sendToServer(new CutscenePayloads.ToServer(CutscenePayloads.END));
         stopLoops();
+        stopMusic();
         stage = Stage.LANDING;
         landingTicks = 0;
     }
@@ -634,6 +669,7 @@ public final class CutscenePlayer {
 
     private static void reset() {
         stopLoops();
+        stopMusic();
         stage = Stage.IDLE;
         ship = null;
         debris.clear();
@@ -1145,6 +1181,28 @@ public final class CutscenePlayer {
         }
     }
 
+    // ---- score ----
+
+    /** On the music channel, so the player's music volume applies; not muffled outside like the effects. */
+    private static SoundInstance playMusic(ResourceLocation part) {
+        SoundInstance music = new SimpleSoundInstance(part, SoundSource.MUSIC, 1.0F, 1.0F,
+                SoundInstance.createUnseededRandom(), false, 0, SoundInstance.Attenuation.NONE, 0.0, 0.0, 0.0, true);
+        Minecraft.getInstance().getSoundManager().play(music);
+        return music;
+    }
+
+    private static void stopMusic() {
+        var sounds = Minecraft.getInstance().getSoundManager();
+        if (musicA != null) {
+            sounds.stop(musicA);
+            musicA = null;
+        }
+        if (musicB != null) {
+            sounds.stop(musicB);
+            musicB = null;
+        }
+    }
+
     // ---- sounds that loop ----
 
     private static void startLoops() {
@@ -1427,7 +1485,7 @@ public final class CutscenePlayer {
 
         // Fade in from black, a white flash on impact, then the wreck fades to black before the island wake-up.
         if (t < 1.5F) {
-            g.fill(0, 0, w, h, ((int) ((1.0F - t / 1.5F) * 255) << 24));
+            g.fill(0, 0, w, h, ((int) (Mth.clamp(1.0F - t / 1.5F, 0.0F, 1.0F) * 255) << 24));
         }
         if (t >= IMPACT_AT && t < IMPACT_AT + 0.12F) {
             g.fill(0, 0, w, h, 0xFFFFFFFF);
@@ -1485,11 +1543,12 @@ public final class CutscenePlayer {
     }
 
     /**
-     * While the cutscene plays, only its own sounds (all on the master channel) get through:
+     * While the cutscene plays, only its own sounds (effects on the master channel, the score on music) get through:
      * no background music, ambience or world noise from wherever the player is parked.
      */
     public static void onPlaySound(PlaySoundEvent event) {
-        if (active() && event.getSound() != null && event.getSound().getSource() != SoundSource.MASTER) {
+        if (active() && event.getSound() != null && event.getSound().getSource() != SoundSource.MASTER
+                && !event.getSound().getLocation().getNamespace().equals(SkyloreIslands.MOD_ID)) {
             event.setSound(null);
         }
     }
