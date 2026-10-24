@@ -52,7 +52,9 @@ public final class ShipModel {
         BlockState hullPanel = block("ad_astra:iron_panel", Blocks.LIGHT_GRAY_CONCRETE);
         BlockState belly = block("ad_astra:steel_plateblock", Blocks.GRAY_CONCRETE);
         BlockState trim = block("ad_astra:desh_plating", Blocks.ORANGE_TERRACOTTA);
-        BlockState window = Blocks.LIGHT_BLUE_STAINED_GLASS.defaultBlockState();
+        // Clear (cut-out) glass: stained glass is translucent and would hide every particle behind the
+        // windows, like the dust streaking past, the retro flames and the re-entry fire.
+        BlockState window = Blocks.GLASS.defaultBlockState();
         BlockState ceilingLight = with(block("ad_astra:glowing_iron_pillar", Blocks.SEA_LANTERN), "axis", "y");
         BlockState engineCase = block("ad_astra:encased_desh_block", Blocks.POLISHED_BLACKSTONE);
         BlockState engineGlow = with(block("ad_astra:glowing_desh_pillar", Blocks.SHROOMLIGHT), "axis", "z");
@@ -155,7 +157,8 @@ public final class ShipModel {
         };
     }
 
-    private static BlockState block(String id, Block fallback) {
+    /** A modded block by id, or the vanilla stand-in when that mod isn't installed. */
+    static BlockState block(String id, Block fallback) {
         Optional<Block> block = BuiltInRegistries.BLOCK.getOptional(ResourceLocation.parse(id));
         return block.orElse(fallback).defaultBlockState();
     }
