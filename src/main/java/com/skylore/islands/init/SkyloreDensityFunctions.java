@@ -3,6 +3,7 @@ package com.skylore.islands.init;
 import com.mojang.serialization.MapCodec;
 import com.skylore.islands.SkyloreIslands;
 import com.skylore.islands.worldgen.density.CellularIslandDensityFunction;
+import com.skylore.islands.worldgen.density.IslandDepthDensityFunction;
 import com.skylore.islands.worldgen.density.IslandOccupancyDensityFunction;
 import com.skylore.islands.worldgen.density.OceanBowlContinentalnessDensityFunction;
 import net.minecraft.core.registries.Registries;
@@ -24,6 +25,9 @@ public class SkyloreDensityFunctions {
 
     public static final DeferredHolder<MapCodec<? extends DensityFunction>, MapCodec<OceanBowlContinentalnessDensityFunction>> OCEAN_BOWL_CONTINENTALNESS =
             DENSITY_FUNCTIONS.register("ocean_continentalness", () -> OceanBowlContinentalnessDensityFunction.MAP_CODEC);
+
+    public static final DeferredHolder<MapCodec<? extends DensityFunction>, MapCodec<IslandDepthDensityFunction>> ISLAND_DEPTH =
+            DENSITY_FUNCTIONS.register("island_depth", () -> IslandDepthDensityFunction.MAP_CODEC);
 
     public static void register(IEventBus eventBus) {
         DENSITY_FUNCTIONS.register(eventBus);

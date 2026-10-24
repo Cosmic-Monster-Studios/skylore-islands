@@ -66,12 +66,42 @@ public class OceanBowlContinentalnessDensityFunction implements DensityFunction.
             return -0.55;
         }
 
-        return this.baseContinents.compute(context);
+        if (isMushroomIsland(layout)) {
+            return MUSHROOM_CONTINENTALNESS;
+        }
+        return landContinentalness(this.baseContinents.compute(context));
+    }
+
+    /** Vanilla's coast / near-inland boundary. Below it the biome table only has oceans and beaches. */
+    private static final double INLAND_EDGE = -0.11;
+    /** Inside vanilla's mushroom fields band (-1.2..-1.05). */
+    private static final double MUSHROOM_CONTINENTALNESS = -1.125;
+
+    /**
+     * Island ground under ocean-range noise used to get ocean or beach biomes, which cut out most
+     * inland biomes (deserts, swamps, badlands). Mirror the ocean range back across the coast line
+     * so it spreads over near, mid and far inland like the rest of the land.
+     */
+    static double landContinentalness(double base) {
+        return base < INLAND_EDGE ? 2.0 * INLAND_EDGE - base : base;
+    }
+
+    /** Rare regular Overworld islands take the mushroom fields climate, which land never reaches otherwise. */
+    private static boolean isMushroomIsland(CellularIslandDensityFunction.IslandLayout layout) {
+        int chance = SkyloreConfig.mushroomIslandChance();
+        if (chance <= 0 || layout.mega || CellularIslandDensityFunction.usingNetherLayout()
+                || com.skylore.islands.worldgen.IslandLayout.isBowlArchetype(layout.archetype)
+                || (layout.cellX == 0 && layout.cellZ == 0)) {
+            return false;
+        }
+        long h = layout.cellHash * 0xC2B2AE3D27D4EB4FL;
+        h ^= h >>> 33;
+        return Math.floorMod(h, (long) chance) == 0;
     }
 
     @Override
     public double minValue() {
-        return -1.0;
+        return -1.2;
     }
 
     @Override

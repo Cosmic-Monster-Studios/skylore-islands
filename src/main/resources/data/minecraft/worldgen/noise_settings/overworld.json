@@ -77,7 +77,9 @@
         "shift_z": "minecraft:shift_z"
       }
     },
-    "depth": 0,
+    "depth": {
+      "type": "skylore_islands:island_depth"
+    },
     "ridges": {
       "type": "minecraft:flat_cache",
       "argument": {
@@ -236,6 +238,21 @@
                 "type": "minecraft:block",
                 "result_state": {
                   "Name": "minecraft:mud"
+                }
+              }
+            },
+            {
+              "type": "minecraft:condition",
+              "if_true": {
+                "type": "minecraft:biome",
+                "biome_is": [
+                  "minecraft:mushroom_fields"
+                ]
+              },
+              "then_run": {
+                "type": "minecraft:block",
+                "result_state": {
+                  "Name": "minecraft:mycelium"
                 }
               }
             },
