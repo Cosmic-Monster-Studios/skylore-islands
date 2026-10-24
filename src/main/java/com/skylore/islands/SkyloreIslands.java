@@ -2,6 +2,8 @@ package com.skylore.islands;
 
 import com.mojang.logging.LogUtils;
 import com.skylore.islands.config.SkyloreConfig;
+import com.skylore.islands.cutscene.ArrivalCutscene;
+import com.skylore.islands.cutscene.CutscenePayloads;
 import com.skylore.islands.event.ChunkOccupancyHandler;
 import com.skylore.islands.event.CrashIslandHandler;
 import com.skylore.islands.event.IslandSpawnHandler;
@@ -27,6 +29,7 @@ public class SkyloreIslands {
         SkyloreBlocks.register(modEventBus);
 
         modEventBus.addListener(this::commonSetup);
+        modEventBus.addListener(CutscenePayloads::register);
 
         modContainer.registerConfig(ModConfig.Type.SERVER, SkyloreConfig.SERVER_SPEC, "skylore_islands-server.toml");
         NeoForge.EVENT_BUS.register(IslandSpawnHandler.class);
@@ -34,6 +37,7 @@ public class SkyloreIslands {
         NeoForge.EVENT_BUS.register(ChunkOccupancyHandler.class);
         NeoForge.EVENT_BUS.register(VoidFallProtectionHandler.class);
         NeoForge.EVENT_BUS.register(PlayerTasks.class);
+        NeoForge.EVENT_BUS.register(ArrivalCutscene.class);
 
         LOGGER.info("Skylore Islands 1.21.1 initialized — expansive 3D cellular sky islands active.");
     }

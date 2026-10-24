@@ -35,7 +35,9 @@
     "RandomSpreadStructurePlacementMixin",
     "StructureCheckMixin"
   ],
-  "client": [],
+  "client": [
+    "client.CameraMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

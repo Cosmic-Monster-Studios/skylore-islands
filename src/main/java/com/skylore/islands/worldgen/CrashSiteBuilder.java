@@ -85,6 +85,41 @@ public final class CrashSiteBuilder {
      * Returns the player stand position, or null if this spot was rejected (nothing is changed then).
      */
     public static BlockPos tryBuild(ServerLevel level, int x, int z, long seed) {
+        BlockPos site = findSite(level, x, z);
+        return site == null ? null : buildAt(level, site, seed);
+    }
+
+    /**
+     * Loads the area and checks the spot (dirt surface, real trees, no structure) without changing
+     * anything. Returns the surface block at the crater's centre, or null if the spot is no good.
+     */
+    public static BlockPos findSite(ServerLevel level, int x, int z) {
+        int radius = SkyloreConfig.crashCraterRadius();
+        return withAreaLoaded(level, x, z, () -> {
+            int ground = groundY(level, x, z);
+            BlockState surface = level.getBlockState(new BlockPos(x, ground, z));
+            if (!surface.is(BlockTags.DIRT) || !surface.getFluidState().isEmpty()) {
+                return null;
+            }
+            if (countLogs(level, x, ground, z) < SkyloreConfig.crashMinTreeLogs()) {
+                return null;
+            }
+            if (touchesStructure(level, x, ground, z, radius)) {
+                return null;
+            }
+            return new BlockPos(x, ground, z);
+        });
+    }
+
+    /** Blasts the crater at a spot {@link #findSite} accepted. Returns the player stand position. */
+    public static BlockPos buildAt(ServerLevel level, BlockPos site, long seed) {
+        int radius = SkyloreConfig.crashCraterRadius();
+        return withAreaLoaded(level, site.getX(), site.getZ(),
+                () -> build(level, site.getX(), site.getY(), site.getZ(), radius, RandomSource.create(seed)));
+    }
+
+    /** Runs {@code work} with every chunk the crater, its blast ring and its cargo pods can touch loaded. */
+    private static BlockPos withAreaLoaded(ServerLevel level, int x, int z, java.util.function.Supplier<BlockPos> work) {
         int radius = SkyloreConfig.crashCraterRadius();
         int reach = Math.max(Math.max(TREE_SCAN, (int) Math.ceil(radius * (BLAST_RING + 0.3))), POD_MAX_DIST + 6) + 2;
         Set<Long> forced = new HashSet<>();
@@ -99,18 +134,7 @@ public final class CrashSiteBuilder {
                     level.getChunk(cx, cz);
                 }
             }
-            int ground = groundY(level, x, z);
-            BlockState surface = level.getBlockState(new BlockPos(x, ground, z));
-            if (!surface.is(BlockTags.DIRT) || !surface.getFluidState().isEmpty()) {
-                return null;
-            }
-            if (countLogs(level, x, ground, z) < SkyloreConfig.crashMinTreeLogs()) {
-                return null;
-            }
-            if (touchesStructure(level, x, ground, z, radius)) {
-                return null;
-            }
-            return build(level, x, ground, z, radius, RandomSource.create(seed));
+            return work.get();
         } finally {
             for (long packed : forced) {
                 level.setChunkForced(ChunkPos.getX(packed), ChunkPos.getZ(packed), false);
