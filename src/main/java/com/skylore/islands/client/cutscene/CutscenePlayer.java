@@ -273,6 +273,49 @@ public final class CutscenePlayer {
                 || (t >= PODS_SHOT_END && t < CHASE_AT) || (t >= FINAL_INTERIOR_AT && t < CRASH_CAM_AT);
     }
 
+    /** What the crew all turn to look at: the dying lights, the breach, their consoles. */
+    private static int reaction(float t) {
+        if (t >= TROUBLE_AT && t < TROUBLE_AT + 2.0F) {
+            return Crew.CEILING;
+        }
+        if (t >= BREACH_AT && t < BREACH_AT + 2.4F) {
+            return Crew.AFT;
+        }
+        if (t >= NAV_LOST_AT && t < NAV_LOST_AT + 2.0F) {
+            return Crew.CONSOLE;
+        }
+        return Crew.NOTHING;
+    }
+
+    private static final BlockState PORT_LIGHT = ShipModel.block("ad_astra:red_industrial_lamp", Blocks.REDSTONE_LAMP);
+    private static final BlockState STARBOARD_LIGHT = ShipModel.block("ad_astra:green_industrial_lamp", Blocks.VERDANT_FROGLIGHT);
+    private static final BlockState STROBE_LIGHT = ShipModel.block("ad_astra:white_industrial_lamp", Blocks.SEA_LANTERN);
+
+    /**
+     * Navigation lights: red to port, green to starboard (each blinking off briefly, out of step),
+     * and a white strobe on the antenna that flashes every second and a half.
+     */
+    private static void navLights(PoseStack pose, MultiBufferSource buffers, float t) {
+        double out = ShipModel.RADIUS + 1.6;
+        if (t % 2.0F > 0.15F) {
+            light(pose, buffers, PORT_LIGHT, 0.5 + out, -2.5, 0.5);
+        }
+        if ((t + 1.0F) % 2.0F > 0.15F) {
+            light(pose, buffers, STARBOARD_LIGHT, 0.5 - out, -2.5, 0.5);
+        }
+        if (t % 1.5F < 0.12F) {
+            light(pose, buffers, STROBE_LIGHT, 0.5, ShipModel.RADIUS + 4.6, 0.5);
+        }
+    }
+
+    private static void light(PoseStack pose, MultiBufferSource buffers, BlockState state, double x, double y, double z) {
+        pose.pushPose();
+        pose.translate(x - 0.3, y - 0.3, z - 0.3);
+        pose.scale(0.6F, 0.6F, 0.6F);
+        Minecraft.getInstance().getBlockRenderer().renderSingleBlock(state, pose, buffers, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY);
+        pose.popPose();
+    }
+
     /** The close-up on screen now, if any. */
     private static Line closeUp(float t) {
         for (Line line : closeUps) {
@@ -958,6 +1001,29 @@ public final class CutscenePlayer {
                 ui(SoundEvents.FIRE_EXTINGUISH, 2.0F, 0.12F);
             }
         }
+        if (t < SNAP_AT && inTransit()) {
+            if (t < PODS_AT + 1.2F) {
+                // The main engine's faint blue exhaust while cruising.
+                Vec3 nozzle = toWorld(new Vec3(0.5 + random.nextGaussian() * 0.5, 0.5 + random.nextGaussian() * 0.5, -ShipModel.RADIUS - 0.8), t);
+                for (int i = 0; i < 2; i++) {
+                    mc.level.addAlwaysVisibleParticle(ParticleTypes.SOUL_FIRE_FLAME, true, nozzle.x, nozzle.y, nozzle.z,
+                            random.nextGaussian() * 0.02, random.nextGaussian() * 0.02, -0.35);
+                }
+            } else {
+                // Braking: four retro-thrusters around the canopy fire forward against the ship's speed,
+                // where the crew can see them through the front window.
+                for (double[] n : new double[][]{{0.32, 0.18}, {-0.32, 0.18}, {0.32, -0.12}, {-0.32, -0.12}}) {
+                    Vec3 nozzle = toWorld(ShipModel.hullPoint(n[0], n[1], 0.8).add(0.5, 0.5, 0.5), t);
+                    for (int i = 0; i < 5; i++) {
+                        mc.level.addAlwaysVisibleParticle(ParticleTypes.FLAME, true, nozzle.x, nozzle.y, nozzle.z,
+                                n[0] * 0.15 + random.nextGaussian() * 0.04, n[1] * 0.15 + random.nextGaussian() * 0.04, 0.7 + random.nextDouble() * 0.3);
+                    }
+                    if (random.nextInt(3) == 0) {
+                        mc.level.addParticle(ParticleTypes.LARGE_SMOKE, nozzle.x, nozzle.y, nozzle.z, 0, 0, 0.4);
+                    }
+                }
+            }
+        }
         if (t >= TROUBLE_AT && t < SNAP_AT) {
             // Inside: consoles arc on every knock, steam leaks from the floor vents, and the breach
             // drags fog toward the back of the cabin.
@@ -977,7 +1043,7 @@ public final class CutscenePlayer {
             if (pull > 0.0F) {
                 for (int i = 0; i < (int) (8 * pull); i++) {
                     Vec3 at = toWorld(new Vec3(random.nextGaussian() * 3, -1.5 + random.nextGaussian(), 2 + random.nextDouble() * 4), t);
-                    mc.level.addParticle(ParticleTypes.POOF, at.x, at.y, at.z, 0, -0.05, -0.55);
+                    mc.level.addParticle(ParticleTypes.CLOUD, at.x, at.y, at.z, 0, -0.05, -0.55);
                 }
             }
         }
@@ -1156,7 +1222,7 @@ public final class CutscenePlayer {
         for (int i = 0; i < 90; i++) {
             double a = random.nextDouble() * Math.PI * 2;
             double speed = 0.8 + random.nextDouble() * 0.7;
-            mc.level.addAlwaysVisibleParticle(i % 3 == 0 ? ParticleTypes.CAMPFIRE_COSY_SMOKE : ParticleTypes.POOF, true,
+            mc.level.addAlwaysVisibleParticle(i % 3 == 0 ? ParticleTypes.CAMPFIRE_COSY_SMOKE : ParticleTypes.CLOUD, true,
                     wreck.x + Math.cos(a) * 2, ground, wreck.z + Math.sin(a) * 2,
                     Math.cos(a) * speed, 0.03 + random.nextDouble() * 0.05, Math.sin(a) * speed);
         }
@@ -1301,6 +1367,7 @@ public final class CutscenePlayer {
             // left on the island is the crash site's own wreckage.
             if (t < IMPACT_AT) {
                 ship.render(pose, buffers, 1.0F, 0.0F);
+                navLights(pose, buffers, t);
             } else {
                 renderDebris(t, cam, buffers);
             }
@@ -1312,7 +1379,8 @@ public final class CutscenePlayer {
         float brace = Mth.clamp((t - PODS_AT) / 1.5F, 0.0F, 1.0F);
         float grip = t >= TROUBLE_AT && t < SNAP_AT ? 1.0F : t >= SNAP_AT ? 1.0F : 0.0F;
         crew.render(pose, buffers, aboard, line == null ? "" : line.speaker, brace, shake(t), t, light,
-                jolt(t) - decompression(t) * 0.8F, grip);
+                jolt(t) - decompression(t) * 0.8F, grip, reaction(t));
+        navLights(pose, buffers, t);
 
         if (t >= PODS_AT && t < SNAP_AT) {
             BlockState pod = SkyloreBlocks.CARGO_POD.get().defaultBlockState();

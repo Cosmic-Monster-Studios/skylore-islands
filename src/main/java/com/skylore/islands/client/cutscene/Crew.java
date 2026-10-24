@@ -46,6 +46,12 @@ public final class Crew {
             "laevis", new Species("laevis", 0xFFFFB2E6, 0xFFFFE0F0, 1.0F, "alex"));
     public static final List<String> ORDER = List.of("fortis", "teknari", "automaton", "laevis", "beryl", "enoki", "tenebris");
 
+    /** Things the whole crew turns to look at, overriding whoever is talking. */
+    public static final int NOTHING = 0;
+    public static final int CEILING = 1;
+    public static final int AFT = 2;
+    public static final int CONSOLE = 3;
+
     private PlayerModel<LivingEntity> model;
 
     /** Crew members aboard for a player of this species, in seat order (seat 0 is the player's). */
@@ -82,9 +88,10 @@ public final class Crew {
      * @param brightness 0..1 for the flickering lights
      * @param lurch      how hard a knock throws them forward (negative: pulled back)
      * @param grip       0..1, hands off their laps and clamped on the armrests
+     * @param react      what grabs everyone's attention: {@link #NOTHING}, {@link #CEILING}, {@link #AFT} or {@link #CONSOLE}
      */
     public void render(PoseStack pose, MultiBufferSource buffers, List<String> aboard, String speaker,
-                       float brace, float shake, float time, float brightness, float lurch, float grip) {
+                       float brace, float shake, float time, float brightness, float lurch, float grip, int react) {
         if (model == null) {
             model = new PlayerModel<>(Minecraft.getInstance().getEntityModels().bakeLayer(ModelLayers.PLAYER), false);
             // Entity models start out as babies (big head, tiny body); these are grown-ups.
@@ -117,7 +124,15 @@ public final class Crew {
                 model.leftArm.zRot = Mth.lerp(grip, model.leftArm.zRot, -0.35F);
             }
             Vec3 target = speaker.isEmpty() ? null : eye(aboard, speaker);
-            if (target != null && !talking) {
+            Vec3 facing = new Vec3(Mth.sin(angle * Mth.DEG_TO_RAD), 0.0, Mth.cos(angle * Mth.DEG_TO_RAD));
+            switch (react) {
+                // The lights failing overhead, the breach behind them, their own failing console.
+                case CEILING -> target = new Vec3(0.5, ShipModel.RADIUS - 1.0, 0.5);
+                case AFT -> target = new Vec3(0.5, -3.0, -ShipModel.RADIUS - 1.0);
+                case CONSOLE -> target = hips.add(facing.scale(2.2)).add(0.0, -0.4, 0.0);
+                default -> {}
+            }
+            if (target != null && (!talking || react != NOTHING)) {
                 // Turn to whoever is talking, as far as a neck goes.
                 Vec3 d = target.subtract(hips.add(0.0, 0.95 * scale, 0.0));
                 float look = (float) Math.toDegrees(Math.atan2(d.x, d.z));
