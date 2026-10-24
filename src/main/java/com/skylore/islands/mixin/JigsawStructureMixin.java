@@ -2,6 +2,7 @@ package com.skylore.islands.mixin;
 
 import com.skylore.islands.worldgen.LandSurfacePlacement;
 import com.skylore.islands.worldgen.StructureIslandPolicy;
+import com.skylore.islands.worldgen.StructureStubMover;
 import com.skylore.islands.worldgen.density.CellularIslandDensityFunction;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -49,6 +50,9 @@ public abstract class JigsawStructureMixin extends Structure {
     @Shadow @Final private List<PoolAliasBinding> poolAliases;
     @Shadow @Final private DimensionPadding dimensionPadding;
     @Shadow @Final private LiquidSettings liquidSettings;
+
+    /** Rock left between an encapsulated structure's roof and the island surface. */
+    private static final int ENCAPSULATED_COVER = 10;
 
     protected JigsawStructureMixin(StructureSettings settings) {
         super(settings);
@@ -104,6 +108,15 @@ public abstract class JigsawStructureMixin extends Structure {
             return;
         }
 
+        if (!isVoidCraft && this.terrainAdaptation() == TerrainAdjustment.ENCAPSULATE) {
+            // Encapsulated complexes (trial chambers) belong inside rock: hang the whole box under the
+            // lowest nearby surface so no copper or vaults poke out of the island top.
+            Optional<Structure.GenerationStub> stub = addPieces(context, new BlockPos(blockX, surfaceY, blockZ));
+            cir.setReturnValue(stub.flatMap(s -> StructureStubMover.topAtY(
+                    s, lowestSurfaceY(context, blockX, blockZ, surfaceY) - ENCAPSULATED_COVER)));
+            return;
+        }
+
         int targetY;
         if (isVoidCraft) {
             targetY = StructureIslandPolicy.AIRBORNE_START_Y;
@@ -146,6 +159,22 @@ public abstract class JigsawStructureMixin extends Structure {
         best = Math.max(best, sampleSurface(context, blockX, blockZ + 8));
         best = Math.max(best, sampleSurface(context, blockX, blockZ - 8));
         return best;
+    }
+
+    /** Lowest island surface around the start; void columns (heightmap at the world floor) are skipped. */
+    private static int lowestSurfaceY(Structure.GenerationContext context, int blockX, int blockZ, int fallback) {
+        int low = fallback;
+        for (int d = 16; d <= 32; d += 16) {
+            low = lowerLand(low, sampleSurface(context, blockX + d, blockZ));
+            low = lowerLand(low, sampleSurface(context, blockX - d, blockZ));
+            low = lowerLand(low, sampleSurface(context, blockX, blockZ + d));
+            low = lowerLand(low, sampleSurface(context, blockX, blockZ - d));
+        }
+        return low;
+    }
+
+    private static int lowerLand(int low, int sample) {
+        return sample > 35 ? Math.min(low, sample) : low;
     }
 
     private static int sampleSurface(Structure.GenerationContext context, int x, int z) {

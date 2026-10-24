@@ -30,6 +30,17 @@ public final class StructureStubMover {
         return Optional.of(new Structure.GenerationStub(pos, generator));
     }
 
+    /** Move generated pieces so their bounding-box max Y matches {@code topY}. */
+    public static Optional<Structure.GenerationStub> topAtY(Structure.GenerationStub stub, int topY) {
+        Either<Consumer<StructurePiecesBuilder>, StructurePiecesBuilder> generator = stub.generator();
+        generator.ifRight(existing -> offsetMaxY(existing, topY));
+        generator = generator.mapLeft(c -> builder -> {
+            c.accept(builder);
+            offsetMaxY(builder, topY);
+        });
+        return Optional.of(new Structure.GenerationStub(stub.position(), generator));
+    }
+
     public static Optional<Structure.GenerationStub> alignMinCorner(Structure.GenerationStub stub, int destMinX, int destMinY, int destMinZ) {
         BlockPos pos = new BlockPos(destMinX, destMinY, destMinZ);
         Either<Consumer<StructurePiecesBuilder>, StructurePiecesBuilder> generator = stub.generator();
@@ -46,6 +57,16 @@ public final class StructureStubMover {
             return;
         }
         int dy = targetY - builder.getBoundingBox().minY();
+        if (dy != 0) {
+            builder.offsetPiecesVertically(dy);
+        }
+    }
+
+    private static void offsetMaxY(StructurePiecesBuilder builder, int topY) {
+        if (builder.isEmpty()) {
+            return;
+        }
+        int dy = topY - builder.getBoundingBox().maxY();
         if (dy != 0) {
             builder.offsetPiecesVertically(dy);
         }

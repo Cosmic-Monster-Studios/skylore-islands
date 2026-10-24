@@ -792,7 +792,7 @@ public final class IslandLayout {
     }
 
     /**
-     * Rock islets (radius 6-14) orbiting just outside the shoreline: 1-3 per island, 3-6 on large land.
+     * Rock islets (radius 6-14) orbiting just outside the shoreline: 2-4 per island, 4-8 on large land.
      * Bowl archetypes keep a clean rim. Positions are in warped space, like the island body.
      */
     public static double[] computeIslets(int centerX, int centerZ, int baseRadius, int archetype, boolean mega, long cellHash) {
@@ -802,7 +802,7 @@ public final class IslandLayout {
         long h = cellHash * 0x9E3779B97F4A7C15L;
         h ^= h >>> 31;
         boolean large = mega || baseRadius >= 90;
-        int count = large ? 3 + (int) Math.floorMod(h, 4L) : 1 + (int) Math.floorMod(h, 3L);
+        int count = large ? 4 + (int) Math.floorMod(h, 5L) : 2 + (int) Math.floorMod(h, 3L);
         double phase1 = ((cellHash >> 16) & 0xFF) * 0.025;
         double phase2 = ((cellHash >> 24) & 0xFF) * 0.025;
         double[] islets = new double[count * ISLET_STRIDE];
