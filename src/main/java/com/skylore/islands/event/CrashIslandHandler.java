@@ -18,6 +18,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.common.NeoForge;
@@ -149,7 +150,11 @@ public class CrashIslandHandler {
         BlockPos site = data.site(cellX, cellZ);
         BlockPos stand = CrashSiteBuilder.buildAt(level, site, siteSeed(cellX, cellZ));
         data.markBlasted(cellX, cellZ, stand);
+        CRATER_CENTERS.put(CrashIslandSavedData.pack(cellX, cellZ), site);
     }
+
+    /** Where each freshly blasted crater's middle (and the wreck) is, so the player can wake up facing it. */
+    private static final java.util.Map<Long, BlockPos> CRATER_CENTERS = new java.util.HashMap<>();
 
     private static long siteSeed(int cellX, int cellZ) {
         return CellularIslandDensityFunction.worldSeed() ^ (CrashIslandSavedData.pack(cellX, cellZ) * 0x9E3779B97F4A7C15L);
@@ -170,9 +175,15 @@ public class CrashIslandHandler {
             return;
         }
         Vec3 stand = CrashSiteBuilder.standAt(level, site);
-        player.teleportTo(level, stand.x, stand.y, stand.z, player.getYRot(), 0.0F);
+        // Come to looking at the wreck rather than at the crater wall.
+        float yaw = player.getYRot();
+        BlockPos center = CRATER_CENTERS.remove(CrashIslandSavedData.pack(assigned[0], assigned[1]));
+        if (center != null && (center.getX() != Mth.floor(stand.x) || center.getZ() != Mth.floor(stand.z))) {
+            yaw = (float) Math.toDegrees(Math.atan2(-(center.getX() + 0.5 - stand.x), center.getZ() + 0.5 - stand.z));
+        }
+        player.teleportTo(level, stand.x, stand.y, stand.z, yaw, 10.0F);
         // The stand moved down into the crater since the spot was picked.
-        player.setRespawnPosition(Level.OVERWORLD, BlockPos.containing(stand), player.getYRot(), true, false);
+        player.setRespawnPosition(Level.OVERWORLD, BlockPos.containing(stand), yaw, true, false);
         CrashArrival.wakeUp(player);
         NeoForge.EVENT_BUS.post(new CrashSiteBuiltEvent(player, new IslandCell(assigned[0], assigned[1]), BlockPos.containing(stand)));
     }
