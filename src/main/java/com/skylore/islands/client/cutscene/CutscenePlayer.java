@@ -104,6 +104,10 @@ public final class CutscenePlayer {
     private static boolean skippable = true;
     private static List<String> aboard = List.of();
     private static final List<Line> lines = new ArrayList<>();
+    /** Dialogue close-ups: a few seconds on each crew member the first time they speak in the cruise. */
+    private static final List<Line> closeUps = new ArrayList<>();
+    private static final int MAX_CLOSE_UPS = 4;
+    private static final float CLOSE_UP_LENGTH = 3.6F;
     /** Timeline position in seconds. It follows the wall clock, not ticks, so a slow frame rate can't slow the film down. */
     private static double clock;
     private static long lastNanos;
@@ -177,6 +181,7 @@ public final class CutscenePlayer {
 
     private static void loadScript() {
         lines.clear();
+        closeUps.clear();
         Optional<net.minecraft.server.packs.resources.Resource> resource = Minecraft.getInstance().getResourceManager().getResource(SCRIPT);
         if (resource.isEmpty()) {
             return;
@@ -193,7 +198,13 @@ public final class CutscenePlayer {
                 if (speaker.isEmpty() || !(speaker.equals("ship") || aboard.contains(speaker))) {
                     continue;
                 }
-                lines.add(new Line(o.get("t").getAsFloat(), speaker, o.get("key").getAsString()));
+                Line line = new Line(o.get("t").getAsFloat(), speaker, o.get("key").getAsString());
+                lines.add(line);
+                boolean seen = closeUps.stream().anyMatch(c -> c.speaker.equals(line.speaker));
+                if (!speaker.equals("ship") && !seen && closeUps.size() < MAX_CLOSE_UPS
+                        && line.t >= 6.0F && line.t + CLOSE_UP_LENGTH < SPARKS_AT) {
+                    closeUps.add(line);
+                }
             }
         } catch (Exception e) {
             SkyloreIslands.LOGGER.warn("Couldn't read the arrival cutscene script", e);
@@ -218,6 +229,16 @@ public final class CutscenePlayer {
     private static boolean interior(float t) {
         return (t >= 6.0F && t < SPARKS_AT) || (t >= TROUBLE_AT && t < PODS_AT + 0.3F)
                 || (t >= PODS_SHOT_END && t < CHASE_AT) || (t >= FINAL_INTERIOR_AT && t < CRASH_CAM_AT);
+    }
+
+    /** The close-up on screen now, if any. */
+    private static Line closeUp(float t) {
+        for (Line line : closeUps) {
+            if (t >= line.t + 0.15F && t < line.t + CLOSE_UP_LENGTH && aboard.contains(line.speaker)) {
+                return line;
+            }
+        }
+        return null;
     }
 
     /** How hard everything shakes, 0..1. */
@@ -384,6 +405,24 @@ public final class CutscenePlayer {
         Vec3 pos;
         float yaw;
         float pitch;
+        Line close = closeUp(t);
+        if (close != null) {
+            // Cut in on whoever is talking: just in front of them and off to one side, at eye height.
+            ShipModel.Seat chair = Crew.seat(aboard.indexOf(close.speaker));
+            float a = chair.yaw() * Mth.DEG_TO_RAD;
+            Vec3 facing = new Vec3(Mth.sin(a), 0.0, Mth.cos(a));
+            Vec3 side = new Vec3(facing.z, 0.0, -facing.x);
+            Vec3 eye = Crew.eye(aboard, close.speaker);
+            // A slow push in over the shot.
+            double push = (t - close.t) / CLOSE_UP_LENGTH * 0.25;
+            Vec3 camLocal = eye.add(facing.scale(1.35 - push)).add(side.scale(0.55)).add(0.0, 0.05, 0.0);
+            pos = toWorld(camLocal, t);
+            Vec3 d = toWorld(eye.add(0.0, -0.1, 0.0), t).subtract(pos);
+            yaw = (float) Math.toDegrees(Math.atan2(-d.x, d.z));
+            pitch = (float) -Math.toDegrees(Math.atan2(d.y, Math.sqrt(d.x * d.x + d.z * d.z)));
+            Quaternionf rot = new Quaternionf().rotationYXZ(Mth.PI - yaw * Mth.DEG_TO_RAD, -pitch * Mth.DEG_TO_RAD, 0.0F);
+            return new CameraPose(pos, rot, yaw, pitch);
+        }
         if (interior(t)) {
             float j = jolt(t);
             float pull = decompression(t);
