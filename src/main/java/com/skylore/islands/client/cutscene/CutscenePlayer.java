@@ -287,16 +287,22 @@ public final class CutscenePlayer {
         return Crew.NOTHING;
     }
 
-    private static final BlockState PORT_LIGHT = ShipModel.block("ad_astra:red_industrial_lamp", Blocks.REDSTONE_LAMP);
-    private static final BlockState STARBOARD_LIGHT = ShipModel.block("ad_astra:green_industrial_lamp", Blocks.VERDANT_FROGLIGHT);
-    private static final BlockState STROBE_LIGHT = ShipModel.block("ad_astra:white_industrial_lamp", Blocks.SEA_LANTERN);
+    // Mounted on the hull and pointing out from it: the side lamps on the walls facing port (+X) and
+    // starboard (-X), the strobe standing on top of the antenna.
+    private static final BlockState PORT_LIGHT = ShipModel.with(ShipModel.with(
+            ShipModel.block("ad_astra:red_industrial_lamp", Blocks.REDSTONE_LAMP), "face", "wall"), "facing", "east");
+    private static final BlockState STARBOARD_LIGHT = ShipModel.with(ShipModel.with(
+            ShipModel.block("ad_astra:green_industrial_lamp", Blocks.VERDANT_FROGLIGHT), "face", "wall"), "facing", "west");
+    private static final BlockState STROBE_LIGHT = ShipModel.with(
+            ShipModel.block("ad_astra:white_industrial_lamp", Blocks.SEA_LANTERN), "face", "floor");
 
     /**
      * Navigation lights: red to port, green to starboard (each blinking off briefly, out of step),
      * and a white strobe on the antenna that flashes every second and a half.
      */
     private static void navLights(PoseStack pose, MultiBufferSource buffers, float t) {
-        double out = ShipModel.RADIUS + 1.6;
+        // Mounting plates flush on the trim ring (its outer face is RADIUS + 1 out on this row).
+        double out = ShipModel.RADIUS + 0.8;
         if (t % 2.0F > 0.15F) {
             light(pose, buffers, PORT_LIGHT, 0.5 + out, -2.5, 0.5);
         }
@@ -304,7 +310,7 @@ public final class CutscenePlayer {
             light(pose, buffers, STARBOARD_LIGHT, 0.5 - out, -2.5, 0.5);
         }
         if (t % 1.5F < 0.12F) {
-            light(pose, buffers, STROBE_LIGHT, 0.5, ShipModel.RADIUS + 4.6, 0.5);
+            light(pose, buffers, STROBE_LIGHT, 0.5, ShipModel.RADIUS + 4.3, 0.5);
         }
     }
 

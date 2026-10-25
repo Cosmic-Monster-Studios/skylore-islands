@@ -164,7 +164,7 @@ public final class ShipModel {
     }
 
     /** Sets a property by name if the block has it, so modded and vanilla stand-ins share one call. */
-    private static BlockState with(BlockState state, String name, String value) {
+    static BlockState with(BlockState state, String name, String value) {
         Property<?> property = state.getBlock().getStateDefinition().getProperty(name);
         return property == null ? state : set(state, property, value);
     }
