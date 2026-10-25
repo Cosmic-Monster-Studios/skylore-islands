@@ -10,6 +10,11 @@ import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece;
+import net.minecraft.world.level.levelgen.structure.StructurePiece;
+import net.minecraft.world.level.levelgen.structure.pools.StructureTemplatePool;
+
+import java.util.List;
 
 /**
  * Size class and placement rules for structures on sky islands.
@@ -77,7 +82,7 @@ public final class StructureIslandPolicy {
 
     public static boolean isAirbornePool(String poolName) {
         return contains(poolName, "airship", "blimp", "corsair", "sky_village", "flying", "zeppelin",
-                "air_balloon", "sky_structure", "skyship", "air_ship");
+                "air_balloon", "sky_structure", "skyship", "air_ship", "skyvillage", "castle_in_the_sky", "balloon");
     }
 
     /** Watercraft that may float in open void instead of sitting on land. Not vanilla shipwrecks (those stay in bowls). */
@@ -262,6 +267,83 @@ public final class StructureIslandPolicy {
             return false;
         }
         return y >= nearby.altitude - SURFACE_SLACK;
+    }
+
+    /** Largest share of a structure's footprint that may sit over open void. */
+    public static final double MAX_VOID_FOOTPRINT = 0.05;
+    /** Footprint sample spacing in blocks. */
+    private static final int FOOTPRINT_STEP = 6;
+
+    /** Real ground height at a column; the world floor for open void. */
+    @FunctionalInterface
+    public interface SurfaceSampler {
+        int surfaceAt(int x, int z);
+    }
+
+    /**
+     * Share of the pieces' footprint columns with no ground under them. Pieces are sampled, not the
+     * overall box, so L-shaped and spread-out structures are not penalised for empty box corners.
+     * Uses the generated surface rather than the island outline: the outline reaches past where the
+     * rim terrain thins out, so a structure could hang over sky while still "inside" it.
+     */
+    public static double voidFootprintShare(List<StructurePiece> pieces, SurfaceSampler surface, int floorY) {
+        int samples = 0;
+        int voids = 0;
+        for (StructurePiece piece : pieces) {
+            BoundingBox box = piece.getBoundingBox();
+            for (int x = box.minX(); x <= box.maxX(); x += FOOTPRINT_STEP) {
+                for (int z = box.minZ(); z <= box.maxZ(); z += FOOTPRINT_STEP) {
+                    samples++;
+                    if (surface.surfaceAt(x, z) <= floorY) {
+                        voids++;
+                    }
+                }
+            }
+            // Always include the far corner so thin pieces along an edge are seen.
+            samples++;
+            if (surface.surfaceAt(box.maxX(), box.maxZ()) <= floorY) {
+                voids++;
+            }
+        }
+        return samples == 0 ? 0.0 : (double) voids / samples;
+    }
+
+    /** Sink at most this far when settling a floating structure onto the ground. */
+    public static final int MAX_SETTLE = 40;
+
+    /**
+     * How far to lower a rigid jigsaw structure so its base meets the ground instead of floating over
+     * the low side of uneven terrain. Our jigsaw adapter anchors at the highest nearby surface and the
+     * beard fill is off (it grew legs into the void), so wide rigid builds hovered. Settles onto the
+     * lower quartile of the ground under the pieces; returns 0 when nothing should move.
+     */
+    public static int settleDepth(List<StructurePiece> pieces, SurfaceSampler surface, int floorY) {
+        int minY = Integer.MAX_VALUE;
+        List<Integer> heights = new java.util.ArrayList<>();
+        for (StructurePiece piece : pieces) {
+            if (!(piece instanceof PoolElementStructurePiece pool)
+                    || pool.getElement().getProjection() != StructureTemplatePool.Projection.RIGID) {
+                // Terrain-following pieces (village roads and houses) already sit on the ground.
+                return 0;
+            }
+            BoundingBox box = piece.getBoundingBox();
+            minY = Math.min(minY, box.minY());
+            for (int x = box.minX(); x <= box.maxX(); x += FOOTPRINT_STEP) {
+                for (int z = box.minZ(); z <= box.maxZ(); z += FOOTPRINT_STEP) {
+                    int y = surface.surfaceAt(x, z);
+                    if (y > floorY) {
+                        heights.add(y);
+                    }
+                }
+            }
+        }
+        if (heights.isEmpty()) {
+            return 0;
+        }
+        java.util.Collections.sort(heights);
+        int ground = heights.get(heights.size() / 4);
+        int gap = minY - ground;
+        return gap > 2 ? Math.min(gap, MAX_SETTLE) : 0;
     }
 
     private static CellularIslandDensityFunction.IslandLayout nearbyIsland(int x, int z) {
