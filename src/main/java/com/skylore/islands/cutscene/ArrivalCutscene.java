@@ -16,6 +16,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
 import com.mojang.brigadier.arguments.FloatArgumentType;
 import net.minecraft.commands.Commands;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -62,13 +63,39 @@ public final class ArrivalCutscene {
                 && !CrashIslandSavedData.get(server.overworld()).sawCutscene(player.getUUID());
     }
 
-    /** Offers the cutscene; the client starts it once the origin picker is closed. */
+    /**
+     * Queues the cutscene. It is offered once the player has picked an origin (the server tick checks), and the
+     * client then starts it once the picker has closed. Closing a screen alone isn't proof: the picker can open
+     * late on a slow join, and the client would otherwise see "no screen" and start without a species.
+     */
     public static void start(ServerPlayer player, BlockPos stand) {
-        SESSIONS.put(player.getUUID(), new Session(stand));
+        Session session = new Session(stand);
+        session.awaitingOrigin = true;
+        SESSIONS.put(player.getUUID(), session);
         player.getPersistentData().putBoolean(ARRIVING_TAG, true);
         // Nausea would warp the calm opening.
         player.removeEffect(MobEffects.CONFUSION);
-        send(player, CutscenePayloads.OFFER, stand, "");
+        offerIfChosen(player, session);
+    }
+
+    private static void offerIfChosen(ServerPlayer player, Session session) {
+        if (session.awaitingOrigin && hasChosenOrigin(player)) {
+            session.awaitingOrigin = false;
+            send(player, CutscenePayloads.OFFER, session.stand, "");
+        }
+    }
+
+    /** Whether the origin picker is done with: an origin is set, or there is no Origins to pick one. */
+    static boolean hasChosenOrigin(ServerPlayer player) {
+        if (!ModList.get().isLoaded("origins")) {
+            return true;
+        }
+        String id = originFromApi(player);
+        if (id != null) {
+            return !id.endsWith(":empty");
+        }
+        // The API moved: fall back to finding a Skylore species in the player's saved data.
+        return !species(player).isEmpty();
     }
 
     static void receive(ServerPlayer player, int kind) {
@@ -182,6 +209,9 @@ public final class ArrivalCutscene {
         for (UUID uuid : List.copyOf(SESSIONS.keySet())) {
             ServerPlayer player = server.getPlayerList().getPlayer(uuid);
             Session session = SESSIONS.get(uuid);
+            if (player != null && session.awaitingOrigin && server.getTickCount() % 10 == 0) {
+                offerIfChosen(player, session);
+            }
             if (player == null || session.stage == Stage.OFFERED) {
                 continue;
             }
@@ -279,6 +309,8 @@ public final class ArrivalCutscene {
     private static final class Session {
         final BlockPos stand;
         Stage stage = Stage.OFFERED;
+        /** Not offered yet: still waiting for the player to pick an origin. */
+        boolean awaitingOrigin;
         int startTick;
         boolean test;
         float from;

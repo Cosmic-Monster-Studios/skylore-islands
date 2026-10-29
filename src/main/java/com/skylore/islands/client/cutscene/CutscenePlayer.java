@@ -118,6 +118,9 @@ public final class CutscenePlayer {
     private static int settle;
     private static int skipHeld;
     private static int landingTicks;
+    /** When the loading card went up, and when the ship came on screen (0: not yet), for its fades. */
+    private static long loadingSince;
+    private static long loadedAt;
     private static boolean snapSent;
     private static boolean endSent;
     private static boolean begun;
@@ -199,6 +202,8 @@ public final class CutscenePlayer {
             stage = Stage.OFFERED;
             settle = 0;
             begun = false;
+            loadingSince = 0L;
+            loadedAt = 0L;
         } else if (payload.kind() == CutscenePayloads.BEGIN) {
             species = payload.species();
             aboard = Crew.aboard(species);
@@ -608,6 +613,7 @@ public final class CutscenePlayer {
                     player.yRotO = 0.0F;
                     player.xRotO = 8.0F;
                     stage = Stage.PLAYING;
+                    loadedAt = Util.getMillis();
                     startLoops();
                     if (clock < 0.25) {
                         musicA = playMusic(MUSIC_A);
@@ -722,6 +728,8 @@ public final class CutscenePlayer {
         stage = Stage.IDLE;
         ship = null;
         debris.clear();
+        loadingSince = 0L;
+        loadedAt = 0L;
     }
 
     private static void cues(Minecraft mc, float before, float t) {
@@ -1470,9 +1478,10 @@ public final class CutscenePlayer {
         Minecraft mc = Minecraft.getInstance();
         int w = g.guiWidth();
         int h = g.guiHeight();
-        if (stage == Stage.OFFERED) {
-            if (settle > 0) {
+        if (stage == Stage.OFFERED || stage == Stage.ENTERING) {
+            if (stage == Stage.ENTERING || settle > 0) {
                 g.fill(0, 0, w, h, 0xFF000000);
+                renderLoading(g, mc.font, w, h, 1.0F);
             }
             return;
         }
@@ -1567,6 +1576,52 @@ public final class CutscenePlayer {
         if (t >= CRASH_FADE_AT) {
             g.fill(0, 0, w, h, (int) (Mth.clamp(t - CRASH_FADE_AT, 0.0F, 1.0F) * 255) << 24);
         }
+        if (loadedAt != 0L) {
+            // The loading card fades out over the ship's fade-in instead of blinking off.
+            float out = 1.0F - (Util.getMillis() - loadedAt) / 500.0F;
+            if (out > 0.0F) {
+                renderLoading(g, font, w, h, out);
+            } else {
+                loadedAt = 0L;
+            }
+        }
+    }
+
+    /**
+     * While the client waits for the space level (the move there, then its first chunks): a black card with
+     * a pulsing caption and a sweeping bar, so the wait reads as loading rather than a frozen black screen.
+     */
+    private static void renderLoading(GuiGraphics g, Font font, int w, int h, float alpha) {
+        long now = Util.getMillis();
+        if (loadingSince == 0L) {
+            loadingSince = now;
+        }
+        // Fades in, so a quick load is just black rather than a flicker of text.
+        alpha *= Mth.clamp((now - loadingSince - 150L) / 400.0F, 0.0F, 1.0F);
+        if (alpha <= 0.02F) {
+            return;
+        }
+        float pulse = 0.75F + 0.25F * Mth.sin(now / 320.0F);
+        String dots = ".".repeat((int) (now / 400L % 4L));
+        Component caption = Component.translatable("cutscene.skylore_islands.loading");
+        int cx = w / 2;
+        int cy = h / 2;
+        g.pose().pushPose();
+        g.pose().translate(cx, cy - 18, 0.0F);
+        g.pose().scale(1.5F, 1.5F, 1.0F);
+        int textWidth = font.width(caption);
+        // Centred on the caption alone, so the dots don't shift it.
+        g.drawString(font, caption.getString() + dots, -textWidth / 2, 0, ((int) (alpha * pulse * 255) << 24) | 0x8CFFDA);
+        g.pose().popPose();
+
+        int barWidth = Math.min(160, w - 32);
+        int left = cx - barWidth / 2;
+        int y = cy + 4;
+        g.fill(left, y, left + barWidth, y + 2, ((int) (alpha * 60) << 24) | 0x8CFFDA);
+        int seg = barWidth / 4;
+        float sweep = (now % 1400L) / 1400.0F;
+        int x0 = left + (int) ((barWidth + seg) * sweep) - seg;
+        g.fill(Math.max(left, x0), y, Math.min(left + barWidth, x0 + seg), y + 2, ((int) (alpha * 230) << 24) | 0x8CFFDA);
     }
 
     // ---- event plumbing ----

@@ -1,6 +1,7 @@
 {
   "cutscene.skylore_islands.arrival.title": "探索舰“PHLOX”号",
   "cutscene.skylore_islands.arrival.subtitle": "船员：7 - 目标：ATMOS",
+  "cutscene.skylore_islands.loading": "登船中",
   "cutscene.skylore_islands.skip": "按住 %s 跳过",
   "cutscene.skylore_islands.speaker.ship": "飞船",
   "cutscene.skylore_islands.speaker.fortis": "Fortis",

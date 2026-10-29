@@ -9,6 +9,7 @@
   "item.skylore_islands.ship_scrap": "Ship Scrap",
   "cutscene.skylore_islands.arrival.title": "EXPLORATORY VESSEL \"PHLOX\"",
   "cutscene.skylore_islands.arrival.subtitle": "CREW: 7 - TARGET: ATMOS",
+  "cutscene.skylore_islands.loading": "Boarding",
   "cutscene.skylore_islands.skip": "Hold %s to skip",
   "cutscene.skylore_islands.speaker.ship": "Ship",
   "cutscene.skylore_islands.speaker.fortis": "Fortis",
